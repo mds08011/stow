@@ -28,7 +28,7 @@ This project is fully configured to be built locally or in the cloud.
    ./gradlew assembleDebug
    ```
 
-## 🚀 How to Trigger a New Release
+## How to Trigger a New Release
 
 This project uses a GitHub Actions workflow to automatically compile and publish the Android APK.
 
