@@ -6,7 +6,9 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 
 ## Features
 * **Massive AI Models, Zero Hardware Tax:** Uses Whisper Large-v3-Turbo without competing with Android's system processes for memory.
+* **Background Recording (Foreground Service):** Safely minimize the app, turn off your screen, or use other apps like Google Maps while Stow continues to record completely uninterrupted in the background. Stop recording directly from the persistent notification.
 * **No Artificial Limits:** Record as long as you need without hardcoded 30-second cutoffs.
+* **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
 * **Instant Clipboard:** Once transcribed, the text is automatically copied to your Android clipboard for immediate use in any other app.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
