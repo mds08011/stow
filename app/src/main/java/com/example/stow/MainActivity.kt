@@ -170,6 +170,12 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val jsonObject = JSONObject(responseBody)
                         val text = jsonObject.getString("text")
+                        
+                        // Cleanup temporary audio file
+                        if (file.exists()) {
+                            file.delete()
+                        }
+                        
                         runOnUiThread {
                             tvTranscription.text = text
                             copyToClipboard(text)
