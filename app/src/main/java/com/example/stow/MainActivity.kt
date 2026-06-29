@@ -154,6 +154,7 @@ class MainActivity : AppCompatActivity() {
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
             .addFormDataPart("model", "whisper-large-v3-turbo")
+            .addFormDataPart("prompt", "CAD, HVAC, structural load, thermodynamic, schematic")
             .build()
 
         val request = Request.Builder()
