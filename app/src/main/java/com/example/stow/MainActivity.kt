@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var btnSettings: ImageButton
     private lateinit var btnInfo: ImageButton
+    private lateinit var btnJargon: ImageButton
     private lateinit var tvMicIndicator: TextView
     private lateinit var chronometer: Chronometer
     private lateinit var tvUsage: TextView
@@ -123,6 +124,7 @@ class MainActivity : AppCompatActivity() {
         tvTranscription = findViewById(R.id.tvTranscription)
         btnSettings = findViewById(R.id.btnSettings)
         btnInfo = findViewById(R.id.btnInfo)
+        btnJargon = findViewById(R.id.btnJargon)
         tvMicIndicator = findViewById(R.id.tvMicIndicator)
         chronometer = findViewById(R.id.chronometer)
         tvUsage = findViewById(R.id.tvUsage)
@@ -142,6 +144,10 @@ class MainActivity : AppCompatActivity() {
 
         btnInfo.setOnClickListener {
             showInfoDialog()
+        }
+        
+        btnJargon.setOnClickListener {
+            showJargonDialog()
         }
         
         btnHistory.setOnClickListener {
@@ -234,36 +240,22 @@ class MainActivity : AppCompatActivity() {
     private fun showApiKeyDialog() {
         val builder = AlertDialog.Builder(this)
         builder.setTitle("Settings")
+        builder.setMessage("Please enter your Groq API key to use dictation.")
 
         val layout = LinearLayout(this)
         layout.orientation = LinearLayout.VERTICAL
         layout.setPadding(50, 40, 50, 10)
 
-        val apiKeyLabel = TextView(this)
-        apiKeyLabel.text = "Groq API Key:"
-        layout.addView(apiKeyLabel)
-
         val apiKeyInput = EditText(this)
         apiKeyInput.setText(getApiKey())
         layout.addView(apiKeyInput)
-
-        val jargonLabel = TextView(this)
-        jargonLabel.text = "Custom Vocabulary / Jargon:"
-        jargonLabel.setPadding(0, 30, 0, 0)
-        layout.addView(jargonLabel)
-
-        val jargonInput = EditText(this)
-        jargonInput.setText(getJargon())
-        layout.addView(jargonInput)
 
         builder.setView(layout)
 
         builder.setPositiveButton("Save") { dialog, _ ->
             val key = apiKeyInput.text.toString().trim()
-            val jargonText = jargonInput.text.toString().trim()
             sharedPreferences.edit()
                 .putString("api_key", key)
-                .putString("api_jargon", jargonText)
                 .apply()
             dialog.dismiss()
         }
@@ -273,6 +265,36 @@ class MainActivity : AppCompatActivity() {
         }
 
         builder.setCancelable(false)
+        builder.show()
+    }
+
+    private fun showJargonDialog() {
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Custom Vocabulary / Jargon")
+        builder.setMessage("Enter comma-separated terms (e.g., CAD, HVAC, structural load)")
+
+        val layout = LinearLayout(this)
+        layout.orientation = LinearLayout.VERTICAL
+        layout.setPadding(50, 40, 50, 10)
+
+        val jargonInput = EditText(this)
+        jargonInput.setText(getJargon())
+        layout.addView(jargonInput)
+
+        builder.setView(layout)
+
+        builder.setPositiveButton("Save") { dialog, _ ->
+            val jargonText = jargonInput.text.toString().trim()
+            sharedPreferences.edit()
+                .putString("api_jargon", jargonText)
+                .apply()
+            dialog.dismiss()
+        }
+
+        builder.setNegativeButton("Cancel") { dialog, _ ->
+            dialog.cancel()
+        }
+
         builder.show()
     }
 
