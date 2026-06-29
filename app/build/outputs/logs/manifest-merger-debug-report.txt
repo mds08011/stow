@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-25:12
-INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-25:12
-INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-25:12
-INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-25:12
+ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-26:12
+INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-26:12
+INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-26:12
+INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:2:1-26:12
 MERGED from [androidx.databinding:viewbinding:8.1.0] /root/.gradle/caches/transforms-3/ea64c058c8dd64a61a038922cedfbe2d/transformed/viewbinding-8.1.0/AndroidManifest.xml:2:1-7:12
 MERGED from [com.google.android.material:material:1.10.0] /root/.gradle/caches/transforms-3/574fba8b788d284d5a948b8a7216959c/transformed/material-1.10.0/AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /root/.gradle/caches/transforms-3/243d8e5b860ec7eee7daaa57d5777f9b/transformed/constraintlayout-2.1.4/AndroidManifest.xml:2:1-11:12
@@ -71,9 +71,15 @@ uses-permission#android.permission.ACCESS_NETWORK_STATE
 ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:8:5-79
 	android:name
 		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:8:22-76
+uses-permission#android.permission.WRITE_EXTERNAL_STORAGE
+ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:9:5-108
+	android:maxSdkVersion
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:9:79-105
+	android:name
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:9:22-78
 application
-ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:10:5-24:19
-INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:10:5-24:19
+ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:11:5-25:19
+INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml:11:5-25:19
 MERGED from [com.google.android.material:material:1.10.0] /root/.gradle/caches/transforms-3/574fba8b788d284d5a948b8a7216959c/transformed/material-1.10.0/AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.10.0] /root/.gradle/caches/transforms-3/574fba8b788d284d5a948b8a7216959c/transformed/material-1.10.0/AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] /root/.gradle/caches/transforms-3/243d8e5b860ec7eee7daaa57d5777f9b/transformed/constraintlayout-2.1.4/AndroidManifest.xml:9:5-20
@@ -95,31 +101,31 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] /root/.gradle/caches/transf
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.12.0] /root/.gradle/caches/transforms-3/0a0f22f6de5c1b8087b947815bcb57e7/transformed/core-1.12.0/AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:14:9-35
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:15:9-35
 	android:label
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:13:9-41
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:14:9-41
 	android:icon
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:12:9-58
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:13:9-58
 	android:allowBackup
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:11:9-35
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:12:9-35
 	android:theme
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:15:9-42
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:16:9-42
 activity#com.example.stow.MainActivity
-ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:16:9-23:20
+ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:17:9-24:20
 	android:exported
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:18:13-36
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:19:13-36
 	android:name
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:17:13-41
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:18:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:19:13-22:29
+ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:20:13-23:29
 action#android.intent.action.MAIN
-ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:20:17-69
+ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:21:17-69
 	android:name
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:20:25-66
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:21:25-66
 category#android.intent.category.LAUNCHER
-ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:21:17-77
+ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:22:17-77
 	android:name
-		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:21:27-74
+		ADDED from /workspaces/stow/app/src/main/AndroidManifest.xml:22:27-74
 uses-sdk
 INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /workspaces/stow/app/src/main/AndroidManifest.xml
