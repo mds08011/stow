@@ -111,6 +111,7 @@ class MainActivity : AppCompatActivity() {
                 isRecording = true
                 btnRecord.text = "Stop Recording"
                 tvTranscription.text = "Recording..."
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } catch (e: Exception) {
                 e.printStackTrace()
                 Toast.makeText(this@MainActivity, "Failed to start recording", Toast.LENGTH_SHORT).show()
@@ -128,6 +129,7 @@ class MainActivity : AppCompatActivity() {
             isRecording = false
             btnRecord.text = "Start Recording"
             tvTranscription.text = "Loading..."
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
             audioFile?.let {
                 sendAudioToGroq(it)
@@ -138,6 +140,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendAudioToGroq(file: File) {
+        if (!isNetworkAvailable()) {
+            tvTranscription.text = "Error: No active internet connection found."
+            return
+        }
+
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
@@ -212,6 +219,18 @@ class MainActivity : AppCompatActivity() {
 
         builder.setCancelable(false)
         builder.show()
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork ?: return false
+        val activeNetwork = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return when {
+            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> true
+            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> true
+            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> true
+            else -> false
+        }
     }
 
     private fun copyToClipboard(text: String) {
