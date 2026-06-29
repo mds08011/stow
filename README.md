@@ -26,3 +26,17 @@ This project is fully configured to be built locally or in the cloud.
 2. **Compile the App:** Open the terminal in the project root and run the following command to compile the application:
    ```bash
    ./gradlew assembleDebug
+   ```
+
+## 🚀 How to Trigger a New Release
+
+This project uses a GitHub Actions workflow to automatically compile and publish the Android APK.
+
+To trigger a new release, use the following Git tag commands in your terminal:
+
+```bash
+git tag v1.0 # Replace 'v1.0' with the desired version number
+git push origin v1.0 # Ensure the pushed tag matches the local tag you just created
+```
+
+Once the tag is pushed to GitHub, the automated pipeline will build the app, rename the artifact dynamically (e.g., stow-app-v1.0.apk), and attach it to a new GitHub Release page for easy downloading.
