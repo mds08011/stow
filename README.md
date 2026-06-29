@@ -12,6 +12,9 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Secure API Key Management:** API keys are never hardcoded. You manage your key directly within the app, securely saved using Android SharedPreferences.
 
+## Download
+You can download the initial build here: [stow-app-v0.1](app/build/outputs/apk/debug/app-debug.apk)
+
 ## Prerequisites
 * A [Groq Console](https://console.groq.com/) account (Free Tier provides extensive usage).
 * Your unique Groq API Key. **Note:** When you open Stow for the first time, you will be prompted to paste your free Groq API key to use the app.
