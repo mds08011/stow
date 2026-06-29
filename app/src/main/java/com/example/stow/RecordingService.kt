@@ -9,6 +9,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.media.MediaRecorder
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -33,6 +34,7 @@ class RecordingService : Service() {
     private var audioFile: File? = null
     private val client = OkHttpClient()
     private var isRecording = false
+    private var startTimeMillis = 0L
 
     companion object {
         const val ACTION_START = "ACTION_START"
@@ -42,6 +44,7 @@ class RecordingService : Service() {
         const val BROADCAST_STATE = "com.example.stow.STATE_UPDATE"
         const val EXTRA_STATE = "EXTRA_STATE"
         const val EXTRA_TEXT = "EXTRA_TEXT"
+        const val EXTRA_USAGE = "EXTRA_USAGE"
         
         const val STATE_RECORDING = "STATE_RECORDING"
         const val STATE_LOADING = "STATE_LOADING"
@@ -96,6 +99,7 @@ class RecordingService : Service() {
                 prepare()
                 start()
                 isRecording = true
+                startTimeMillis = android.os.SystemClock.elapsedRealtime()
                 broadcastState(STATE_RECORDING)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -126,8 +130,11 @@ class RecordingService : Service() {
             
             broadcastState(STATE_LOADING)
 
+            val durationMillis = android.os.SystemClock.elapsedRealtime() - startTimeMillis
+            val durationSeconds = (durationMillis / 1000).toInt()
+
             audioFile?.let {
-                sendAudioToGroq(it)
+                sendAudioToGroq(it, durationSeconds)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -137,7 +144,7 @@ class RecordingService : Service() {
         }
     }
 
-    private fun sendAudioToGroq(file: File) {
+    private fun sendAudioToGroq(file: File, durationSeconds: Int) {
         if (!isNetworkAvailable()) {
             broadcastState(STATE_ERROR, "Error: No active internet connection found.")
             stopForeground(true)
@@ -179,7 +186,9 @@ class RecordingService : Service() {
                         saveToLog(text)
                         copyToClipboard(text)
                         
-                        broadcastState(STATE_SUCCESS, text)
+                        val newTotalUsage = updateUsage(durationSeconds)
+                        
+                        broadcastState(STATE_SUCCESS, text, newTotalUsage)
                     } catch (e: Exception) {
                         broadcastState(STATE_ERROR, "Error parsing response")
                     }
@@ -192,11 +201,14 @@ class RecordingService : Service() {
         })
     }
 
-    private fun broadcastState(state: String, text: String? = null) {
+    private fun broadcastState(state: String, text: String? = null, usage: Int = -1) {
         val intent = Intent(BROADCAST_STATE).apply {
             putExtra(EXTRA_STATE, state)
             if (text != null) {
                 putExtra(EXTRA_TEXT, text)
+            }
+            if (usage != -1) {
+                putExtra(EXTRA_USAGE, usage)
             }
         }
         sendBroadcast(intent)
@@ -254,5 +266,26 @@ class RecordingService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun updateUsage(durationSeconds: Int): Int {
+        val prefs = getSharedPreferences("StowPrefs", Context.MODE_PRIVATE)
+        val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val lastDate = prefs.getString("LastRecordedDate", "")
+
+        var currentTotal = prefs.getInt("DailyUsageSeconds", 0)
+
+        if (todayDate != lastDate) {
+            currentTotal = 0
+        }
+
+        currentTotal += durationSeconds
+
+        prefs.edit()
+            .putString("LastRecordedDate", todayDate)
+            .putInt("DailyUsageSeconds", currentTotal)
+            .apply()
+            
+        return currentTotal
     }
 }

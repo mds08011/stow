@@ -23,6 +23,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -34,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSettings: ImageButton
     private lateinit var btnInfo: ImageButton
     private lateinit var chronometer: Chronometer
+    private lateinit var tvUsage: TextView
+    private lateinit var tvVersion: TextView
 
     private var isRecording = false
 
@@ -62,6 +67,12 @@ class MainActivity : AppCompatActivity() {
                     }
                     RecordingService.STATE_SUCCESS -> {
                         tvTranscription.text = text
+                        
+                        val usage = intent.getIntExtra(RecordingService.EXTRA_USAGE, -1)
+                        if (usage != -1) {
+                            updateUsageText(usage)
+                        }
+
                         Toast.makeText(this@MainActivity, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                     }
                     RecordingService.STATE_ERROR -> {
@@ -88,6 +99,11 @@ class MainActivity : AppCompatActivity() {
         btnSettings = findViewById(R.id.btnSettings)
         btnInfo = findViewById(R.id.btnInfo)
         chronometer = findViewById(R.id.chronometer)
+        tvUsage = findViewById(R.id.tvUsage)
+        tvVersion = findViewById(R.id.tvVersion)
+
+        tvVersion.text = "v${BuildConfig.VERSION_NAME}"
+        loadInitialUsage()
 
         if (getApiKey().isNullOrEmpty()) {
             showApiKeyDialog()
@@ -209,16 +225,36 @@ class MainActivity : AppCompatActivity() {
 
     private fun showInfoDialog() {
         val message = TextView(this).apply {
-            text = "Stow is an open-source background dictation app.\n\nPlease report any issues or contribute on GitHub:\nhttps://github.com/mds08011/stow"
+            text = "Stow is an open-source background dictation app.\n\n" +
+                   "View GitHub Repository:\nhttps://github.com/mds08011/stow\n\n" +
+                   "View Changelog & Updates:\nhttps://github.com/mds08011/stow/releases"
             setPadding(50, 40, 50, 40)
             textSize = 16f
             Linkify.addLinks(this, Linkify.WEB_URLS)
         }
 
         AlertDialog.Builder(this)
-            .setTitle("About Stow")
+            .setTitle("Stow App - v${BuildConfig.VERSION_NAME}")
             .setView(message)
             .setPositiveButton("Close", null)
             .show()
+    }
+
+    private fun loadInitialUsage() {
+        val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val lastDate = sharedPreferences.getString("LastRecordedDate", "")
+        
+        var currentTotal = sharedPreferences.getInt("DailyUsageSeconds", 0)
+        if (todayDate != lastDate) {
+            currentTotal = 0
+        }
+        
+        updateUsageText(currentTotal)
+    }
+    
+    private fun updateUsageText(usageSeconds: Int) {
+        val minutes = usageSeconds / 60
+        val percent = (usageSeconds.toFloat() / 28800f * 100f).toInt()
+        tvUsage.text = "Today's Usage: ${minutes}m ($percent% of 8h Groq Free limit)"
     }
 }
