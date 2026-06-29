@@ -1,0 +1,13 @@
+R_DEF: Internal format may change without notice
+local
+color accent
+color black
+color primary
+color primaryDark
+color white
+id btnRecord
+id btnSettings
+id tvTranscription
+layout activity_main
+string app_name
+style Theme.Stow
