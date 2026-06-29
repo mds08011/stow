@@ -13,6 +13,8 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **Instant Clipboard:** Once transcribed, the text is automatically copied to your Android clipboard for immediate use in any other app.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Secure API Key Management:** API keys are never hardcoded. You manage your key directly within the app, securely saved using Android SharedPreferences.
+* **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label.
+* **Material Design Icon:** Modern, minimal, adaptive vector launcher icon that looks great on any home screen.
 
 ## Download
 You can download the initial build here: [stow-app-v0.1](app/build/outputs/apk/debug/app-debug.apk)
