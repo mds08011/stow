@@ -16,8 +16,6 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label.
 * **Material Design Icon:** Modern, minimal, adaptive vector launcher icon that looks great on any home screen.
 
-## Download
-You can download the initial build here: [stow-app-v0.1](app/build/outputs/apk/debug/app-debug.apk)
 
 ## Prerequisites
 * A [Groq Console](https://console.groq.com/) account (Free Tier provides extensive usage).
