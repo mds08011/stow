@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.stow"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.3"
+        versionCode = 7
+        versionName = "1.7"
     }
 
     buildTypes {
