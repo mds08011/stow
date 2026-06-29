@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var chronometer: Chronometer
     private lateinit var tvUsage: TextView
     private lateinit var tvVersion: TextView
+    private lateinit var btnHistory: Button
 
     private var isRecording = false
 
@@ -126,6 +127,7 @@ class MainActivity : AppCompatActivity() {
         chronometer = findViewById(R.id.chronometer)
         tvUsage = findViewById(R.id.tvUsage)
         tvVersion = findViewById(R.id.tvVersion)
+        btnHistory = findViewById(R.id.btnHistory)
 
         tvVersion.text = "v${BuildConfig.VERSION_NAME}"
         loadInitialUsage()
@@ -140,6 +142,10 @@ class MainActivity : AppCompatActivity() {
 
         btnInfo.setOnClickListener {
             showInfoDialog()
+        }
+        
+        btnHistory.setOnClickListener {
+            showHistoryDialog()
         }
 
         btnRecord.setOnClickListener {
@@ -283,6 +289,35 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Stow App - v${BuildConfig.VERSION_NAME}")
             .setView(message)
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showHistoryDialog() {
+        val documentsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+        val logFile = java.io.File(documentsDir, "Stow_Log.txt")
+        val content = if (logFile.exists()) {
+            try {
+                logFile.readText()
+            } catch (e: Exception) {
+                "Error reading history."
+            }
+        } else {
+            "No history found."
+        }
+        
+        val scrollView = android.widget.ScrollView(this)
+        val textView = TextView(this).apply {
+            text = content
+            setPadding(50, 40, 50, 40)
+            textSize = 14f
+            setTextIsSelectable(true)
+        }
+        scrollView.addView(textView)
+
+        AlertDialog.Builder(this)
+            .setTitle("Transcription History")
+            .setView(scrollView)
             .setPositiveButton("Close", null)
             .show()
     }
