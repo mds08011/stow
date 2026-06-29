@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var btnSettings: ImageButton
     private lateinit var btnInfo: ImageButton
+    private lateinit var tvMicIndicator: TextView
     private lateinit var chronometer: Chronometer
     private lateinit var tvUsage: TextView
     private lateinit var tvVersion: TextView
@@ -53,6 +54,29 @@ class MainActivity : AppCompatActivity() {
                         isRecording = true
                         btnRecord.text = "Stop Recording"
                         tvTranscription.text = "Recording..."
+                        
+                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                        var isBluetooth = false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            val activeConfigs = audioManager.activeRecordingConfigurations
+                            isBluetooth = activeConfigs.any { config ->
+                                val type = config.audioDevice.type
+                                type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO || type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                            }
+                        }
+                        if (!isBluetooth && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val devices = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS)
+                            isBluetooth = devices.any { device ->
+                                device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO || device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                            }
+                        }
+                        
+                        if (isBluetooth) {
+                            tvMicIndicator.text = "Bluetooth Mic"
+                        } else {
+                            tvMicIndicator.text = "Internal Mic"
+                        }
+
                         chronometer.base = SystemClock.elapsedRealtime()
                         chronometer.start()
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -98,6 +122,7 @@ class MainActivity : AppCompatActivity() {
         tvTranscription = findViewById(R.id.tvTranscription)
         btnSettings = findViewById(R.id.btnSettings)
         btnInfo = findViewById(R.id.btnInfo)
+        tvMicIndicator = findViewById(R.id.tvMicIndicator)
         chronometer = findViewById(R.id.chronometer)
         tvUsage = findViewById(R.id.tvUsage)
         tvVersion = findViewById(R.id.tvVersion)
