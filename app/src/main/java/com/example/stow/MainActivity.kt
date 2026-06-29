@@ -28,6 +28,11 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.os.Environment
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -176,6 +181,8 @@ class MainActivity : AppCompatActivity() {
                             file.delete()
                         }
                         
+                        saveToLog(text)
+                        
                         runOnUiThread {
                             tvTranscription.text = text
                             copyToClipboard(text)
@@ -243,5 +250,25 @@ class MainActivity : AppCompatActivity() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Transcription", text)
         clipboard.setPrimaryClip(clip)
+    }
+
+    private fun saveToLog(text: String) {
+        try {
+            val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            if (!documentsDir.exists()) {
+                documentsDir.mkdirs()
+            }
+            val logFile = File(documentsDir, "Stow_Log.txt")
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            val timeStamp = dateFormat.format(Date())
+            
+            val entry = "--- $timeStamp ---\n$text\n\n"
+            
+            FileOutputStream(logFile, true).use {
+                it.write(entry.toByteArray())
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
