@@ -28,6 +28,11 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.Chronometer
+import android.content.Intent
+import android.net.Uri
+import android.text.util.Linkify
+import android.os.SystemClock
 import android.os.Environment
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -42,6 +47,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTranscription: TextView
 
     private lateinit var btnSettings: ImageButton
+    private lateinit var btnInfo: ImageButton
+    private lateinit var chronometer: Chronometer
 
     private var mediaRecorder: MediaRecorder? = null
     private var audioFile: File? = null
@@ -58,6 +65,8 @@ class MainActivity : AppCompatActivity() {
         btnRecord = findViewById(R.id.btnRecord)
         tvTranscription = findViewById(R.id.tvTranscription)
         btnSettings = findViewById(R.id.btnSettings)
+        btnInfo = findViewById(R.id.btnInfo)
+        chronometer = findViewById(R.id.chronometer)
 
         if (getApiKey().isNullOrEmpty()) {
             showApiKeyDialog()
@@ -65,6 +74,10 @@ class MainActivity : AppCompatActivity() {
 
         btnSettings.setOnClickListener {
             showApiKeyDialog()
+        }
+
+        btnInfo.setOnClickListener {
+            showInfoDialog()
         }
 
         btnRecord.setOnClickListener {
@@ -116,6 +129,8 @@ class MainActivity : AppCompatActivity() {
                 isRecording = true
                 btnRecord.text = "Stop Recording"
                 tvTranscription.text = "Recording..."
+                chronometer.base = SystemClock.elapsedRealtime()
+                chronometer.start()
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -134,6 +149,8 @@ class MainActivity : AppCompatActivity() {
             isRecording = false
             btnRecord.text = "Start Recording"
             tvTranscription.text = "Loading..."
+            chronometer.stop()
+            chronometer.base = SystemClock.elapsedRealtime()
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
             audioFile?.let {
@@ -233,6 +250,21 @@ class MainActivity : AppCompatActivity() {
 
         builder.setCancelable(false)
         builder.show()
+    }
+
+    private fun showInfoDialog() {
+        val message = TextView(this).apply {
+            text = "Stow is an open-source background dictation app.\n\nPlease report any issues or contribute on GitHub:\nhttps://github.com/mds08011/stow"
+            setPadding(50, 40, 50, 40)
+            textSize = 16f
+            Linkify.addLinks(this, Linkify.WEB_URLS)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("About Stow")
+            .setView(message)
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     private fun isNetworkAvailable(): Boolean {
