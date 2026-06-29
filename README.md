@@ -14,6 +14,8 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Secure API Key Management:** API keys are never hardcoded. You manage your key directly within the app, securely saved using Android SharedPreferences.
 * **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label.
+* **Editable Jargon Dictionary:** Save custom vocabulary to ensure highly accurate transcriptions for industry-specific terms.
+* **In-App History Viewer:** Instantly view and copy your past transcriptions directly within the app.
 * **Material Design Icon:** Modern, minimal, adaptive vector launcher icon that looks great on any home screen.
 
 
