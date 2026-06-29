@@ -20,12 +20,23 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
+import android.app.AlertDialog
+import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.view.WindowManager
+import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.LinearLayout
+
 class MainActivity : AppCompatActivity() {
 
-    private val GROQ_API_KEY = "PASTE_YOUR_KEY_HERE"
+    private lateinit var sharedPreferences: SharedPreferences
 
     private lateinit var btnRecord: Button
     private lateinit var tvTranscription: TextView
+
+    private lateinit var btnSettings: ImageButton
 
     private var mediaRecorder: MediaRecorder? = null
     private var audioFile: File? = null
@@ -37,8 +48,19 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        sharedPreferences = getSharedPreferences("StowPrefs", Context.MODE_PRIVATE)
+
         btnRecord = findViewById(R.id.btnRecord)
         tvTranscription = findViewById(R.id.tvTranscription)
+        btnSettings = findViewById(R.id.btnSettings)
+
+        if (getApiKey().isNullOrEmpty()) {
+            showApiKeyDialog()
+        }
+
+        btnSettings.setOnClickListener {
+            showApiKeyDialog()
+        }
 
         btnRecord.setOnClickListener {
             if (isRecording) {
@@ -124,7 +146,7 @@ class MainActivity : AppCompatActivity() {
 
         val request = Request.Builder()
             .url("https://api.groq.com/openai/v1/audio/transcriptions")
-            .header("Authorization", "Bearer $GROQ_API_KEY")
+            .header("Authorization", "Bearer ${getApiKey()}")
             .post(requestBody)
             .build()
 
@@ -158,6 +180,38 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    private fun getApiKey(): String? {
+        return sharedPreferences.getString("api_key", "")
+    }
+
+    private fun showApiKeyDialog() {
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Groq API Key")
+        builder.setMessage("Please enter your Groq API key to use dictation.")
+
+        val input = EditText(this)
+        val lp = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.MATCH_PARENT
+        )
+        input.layoutParams = lp
+        input.setText(getApiKey())
+        builder.setView(input)
+
+        builder.setPositiveButton("Save") { dialog, _ ->
+            val key = input.text.toString().trim()
+            sharedPreferences.edit().putString("api_key", key).apply()
+            dialog.dismiss()
+        }
+
+        builder.setNegativeButton("Cancel") { dialog, _ ->
+            dialog.cancel()
+        }
+
+        builder.setCancelable(false)
+        builder.show()
     }
 
     private fun copyToClipboard(text: String) {
