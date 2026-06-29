@@ -36,14 +36,15 @@ This project is fully configured to be built locally or in the cloud.
 
 This project uses a GitHub Actions workflow to automatically compile and publish the Android APK.
 
-To trigger a new release, use the following Git tag commands in your terminal:
+You can trigger a new release directly from the GitHub web interface:
 
-```bash
-git tag v1.0 # Replace 'v1.0' with the desired version number
-git push origin v1.0 # Ensure the pushed tag matches the local tag you just created
-```
+1. Go to the GitHub repository in a web browser.
+2. Click the 'Actions' tab.
+3. Click 'Build and Release APK' on the left sidebar.
+4. Click the 'Run workflow' dropdown button on the right side.
+5. Enter the desired version number (e.g., v1.5) and click the green 'Run workflow' button.
 
-Once the tag is pushed to GitHub, the automated pipeline will build the app, rename the artifact dynamically (e.g., stow-app-v1.0.apk), and attach it to a new GitHub Release page for easy downloading.
+Once triggered, the automated pipeline will build the app, rename the artifact dynamically (e.g., stow-app-v1.5.apk), and attach it to a new GitHub Release page for easy downloading.
 
 ## Privacy & Permissions Explained
 
