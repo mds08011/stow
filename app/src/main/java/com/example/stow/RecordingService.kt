@@ -41,6 +41,7 @@ class RecordingService : Service() {
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
         const val EXTRA_API_KEY = "EXTRA_API_KEY"
+        const val EXTRA_JARGON = "EXTRA_JARGON"
         
         const val BROADCAST_STATE = "com.example.stow.STATE_UPDATE"
         const val EXTRA_STATE = "EXTRA_STATE"
@@ -55,12 +56,14 @@ class RecordingService : Service() {
     }
 
     private var apiKey: String = ""
+    private var jargon: String = ""
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent != null) {
             when (intent.action) {
                 ACTION_START -> {
                     apiKey = intent.getStringExtra(EXTRA_API_KEY) ?: ""
+                    jargon = intent.getStringExtra(EXTRA_JARGON) ?: ""
                     startRecording()
                 }
                 ACTION_STOP -> stopRecording()
@@ -157,11 +160,16 @@ class RecordingService : Service() {
             return
         }
 
+        var prompt = "CAD, HVAC, structural load, thermodynamic, schematic"
+        if (jargon.isNotEmpty()) {
+            prompt += ", $jargon"
+        }
+
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
             .addFormDataPart("model", "whisper-large-v3-turbo")
-            .addFormDataPart("prompt", "CAD, HVAC, structural load, thermodynamic, schematic")
+            .addFormDataPart("prompt", prompt)
             .build()
 
         val request = Request.Builder()

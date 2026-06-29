@@ -201,6 +201,7 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
             putExtra(RecordingService.EXTRA_API_KEY, getApiKey())
+            putExtra(RecordingService.EXTRA_JARGON, getJargon())
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -220,23 +221,44 @@ class MainActivity : AppCompatActivity() {
         return sharedPreferences.getString("api_key", "")
     }
 
+    private fun getJargon(): String? {
+        return sharedPreferences.getString("api_jargon", "")
+    }
+
     private fun showApiKeyDialog() {
         val builder = AlertDialog.Builder(this)
-        builder.setTitle("Groq API Key")
-        builder.setMessage("Please enter your Groq API key to use dictation.")
+        builder.setTitle("Settings")
 
-        val input = EditText(this)
-        val lp = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.MATCH_PARENT
-        )
-        input.layoutParams = lp
-        input.setText(getApiKey())
-        builder.setView(input)
+        val layout = LinearLayout(this)
+        layout.orientation = LinearLayout.VERTICAL
+        layout.setPadding(50, 40, 50, 10)
+
+        val apiKeyLabel = TextView(this)
+        apiKeyLabel.text = "Groq API Key:"
+        layout.addView(apiKeyLabel)
+
+        val apiKeyInput = EditText(this)
+        apiKeyInput.setText(getApiKey())
+        layout.addView(apiKeyInput)
+
+        val jargonLabel = TextView(this)
+        jargonLabel.text = "Custom Vocabulary / Jargon:"
+        jargonLabel.setPadding(0, 30, 0, 0)
+        layout.addView(jargonLabel)
+
+        val jargonInput = EditText(this)
+        jargonInput.setText(getJargon())
+        layout.addView(jargonInput)
+
+        builder.setView(layout)
 
         builder.setPositiveButton("Save") { dialog, _ ->
-            val key = input.text.toString().trim()
-            sharedPreferences.edit().putString("api_key", key).apply()
+            val key = apiKeyInput.text.toString().trim()
+            val jargonText = jargonInput.text.toString().trim()
+            sharedPreferences.edit()
+                .putString("api_key", key)
+                .putString("api_jargon", jargonText)
+                .apply()
             dialog.dismiss()
         }
 
