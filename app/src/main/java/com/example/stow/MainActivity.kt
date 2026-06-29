@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         btnHistory.setOnClickListener {
-            showHistoryDialog()
+            checkStoragePermissionAndShowHistory()
         }
 
         btnRecord.setOnClickListener {
@@ -202,10 +202,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 200 && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-            startRecording()
-        } else {
-            Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show()
+        if (requestCode == 200) {
+            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                startRecording()
+            } else {
+                Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show()
+            }
+        } else if (requestCode == 201) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                showHistoryDialog()
+            } else {
+                Toast.makeText(this, "Storage permission required to view history", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -315,17 +323,28 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showHistoryDialog() {
-        val documentsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
-        val logFile = java.io.File(documentsDir, "Stow_Log.txt")
-        val content = if (logFile.exists()) {
-            try {
-                logFile.readText()
-            } catch (e: Exception) {
-                "Error reading history."
+    private fun checkStoragePermissionAndShowHistory() {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 201)
+                return
             }
-        } else {
-            "No history found."
+        }
+        showHistoryDialog()
+    }
+
+    private fun showHistoryDialog() {
+        var content = ""
+        try {
+            val documentsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+            val logFile = java.io.File(documentsDir, "Stow_Log.txt")
+            if (logFile.exists()) {
+                content = logFile.readText()
+            } else {
+                content = "No recording history found."
+            }
+        } catch (e: Exception) {
+            content = "Error reading history: ${e.message}"
         }
         
         val scrollView = android.widget.ScrollView(this)
