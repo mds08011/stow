@@ -1,0 +1,14 @@
+{
+    "name": "Android Dev Environment",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "mathiasfrohlich.Kotlin",
+                "naco-siren.gradle-language"
+            ]
+        }
+    }
+}
