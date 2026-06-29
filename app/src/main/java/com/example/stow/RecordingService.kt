@@ -47,10 +47,10 @@ class RecordingService : Service() {
         const val EXTRA_TEXT = "EXTRA_TEXT"
         const val EXTRA_USAGE = "EXTRA_USAGE"
         
-        const val STATE_RECORDING = "STATE_RECORDING"
-        const val STATE_LOADING = "STATE_LOADING"
-        const val STATE_SUCCESS = "STATE_SUCCESS"
-        const val STATE_ERROR = "STATE_ERROR"
+        const val STATE_RECORDING = "ACTION_RECORDING_STARTED"
+        const val STATE_LOADING = "ACTION_RECORDING_STOPPED"
+        const val STATE_SUCCESS = "ACTION_RECORDING_SUCCESS"
+        const val STATE_ERROR = "ACTION_RECORDING_ERROR"
         const val STATE_STOPPED = "STATE_STOPPED"
     }
 
@@ -208,6 +208,7 @@ class RecordingService : Service() {
 
     private fun broadcastState(state: String, text: String? = null, usage: Int = -1) {
         val intent = Intent(BROADCAST_STATE).apply {
+            setPackage(packageName)
             putExtra(EXTRA_STATE, state)
             if (text != null) {
                 putExtra(EXTRA_TEXT, text)
