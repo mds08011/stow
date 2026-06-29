@@ -40,3 +40,11 @@ git push origin v1.0 # Ensure the pushed tag matches the local tag you just crea
 ```
 
 Once the tag is pushed to GitHub, the automated pipeline will build the app, rename the artifact dynamically (e.g., stow-app-v1.0.apk), and attach it to a new GitHub Release page for easy downloading.
+
+## Privacy & Permissions Explained
+
+Stow requires a few permissions to function smoothly and securely:
+
+* **RECORD_AUDIO:** Essential for capturing your dictation.
+* **INTERNET:** Required to securely transmit your audio to the Groq API for transcription.
+* **POST_NOTIFICATIONS & FOREGROUND_SERVICE:** Android requires these to allow the app to continue recording in the background. This ensures your dictation isn't interrupted even if you minimize Stow, turn off your screen, or use other apps like Google Maps. The persistent notification lets you know Stow is actively recording and gives you a quick way to stop it.
