@@ -122,6 +122,7 @@ class MainActivity : AppCompatActivity() {
 
         btnRecord = findViewById(R.id.btnRecord)
         tvTranscription = findViewById(R.id.tvTranscription)
+        tvTranscription.movementMethod = android.text.method.ScrollingMovementMethod()
         btnSettings = findViewById(R.id.btnSettings)
         btnInfo = findViewById(R.id.btnInfo)
         btnJargon = findViewById(R.id.btnJargon)
