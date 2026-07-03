@@ -324,19 +324,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkStoragePermissionAndShowHistory() {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 201)
-                return
-            }
-        }
         showHistoryDialog()
     }
 
     private fun showHistoryDialog() {
         var content = ""
         try {
-            val documentsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+            val documentsDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
             val logFile = java.io.File(documentsDir, "Stow_Log.txt")
             if (logFile.exists()) {
                 content = logFile.readText()

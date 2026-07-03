@@ -264,8 +264,8 @@ class RecordingService : Service() {
 
     private fun saveToLog(text: String) {
         try {
-            val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            if (!documentsDir.exists()) {
+            val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            if (documentsDir != null && !documentsDir.exists()) {
                 documentsDir.mkdirs()
             }
             val logFile = File(documentsDir, "Stow_Log.txt")
