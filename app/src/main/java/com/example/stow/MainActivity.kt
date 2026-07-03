@@ -183,6 +183,15 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(receiver)
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        downloadReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {}
+        }
+    }
+
     private fun checkPermissions(): Boolean {
         val audio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -321,6 +330,9 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Stow App - v${BuildConfig.VERSION_NAME}")
             .setView(message)
             .setPositiveButton("Close", null)
+            .setNeutralButton("Check for Updates") { _, _ ->
+                checkForUpdates()
+            }
             .show()
     }
 
@@ -374,5 +386,127 @@ class MainActivity : AppCompatActivity() {
         val minutes = usageSeconds / 60
         val percent = (usageSeconds.toFloat() / 28800f * 100f).toInt()
         tvUsage.text = "Today's Usage: ${minutes}m ($percent% of 8h Groq Free limit)"
+    }
+
+    private var downloadReceiver: android.content.BroadcastReceiver? = null
+
+    private fun checkForUpdates() {
+        val client = okhttp3.OkHttpClient()
+        val request = okhttp3.Request.Builder()
+            .url("https://api.github.com/repos/mds08011/stow/releases/latest")
+            .build()
+            
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Failed to check for updates", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val responseBody = response.body?.string()
+                if (response.isSuccessful && responseBody != null) {
+                    try {
+                        val jsonObject = org.json.JSONObject(responseBody)
+                        val tagName = jsonObject.getString("tag_name")
+                        val assets = jsonObject.getJSONArray("assets")
+                        var downloadUrl = ""
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val name = asset.getString("name")
+                            if (name.endsWith(".apk")) {
+                                downloadUrl = asset.getString("browser_download_url")
+                                break
+                            }
+                        }
+
+                        val version = tagName.removePrefix("v")
+                        val currentVersion = BuildConfig.VERSION_NAME
+                        
+                        try {
+                            if (version.toDouble() > currentVersion.toDouble() && downloadUrl.isNotEmpty()) {
+                                runOnUiThread {
+                                    showUpdateDialog(version, downloadUrl)
+                                }
+                            } else {
+                                runOnUiThread {
+                                    Toast.makeText(this@MainActivity, "App is up to date", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } catch (e: NumberFormatException) {
+                            runOnUiThread {
+                                Toast.makeText(this@MainActivity, "Error parsing version", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun showUpdateDialog(version: String, downloadUrl: String) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Update Available")
+            .setMessage("Update Available: v$version. Do you want to download and install?")
+            .setPositiveButton("Update") { _, _ ->
+                downloadAndInstallUpdate(downloadUrl, "stow-v$version.apk")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun downloadAndInstallUpdate(url: String, fileName: String) {
+        val request = android.app.DownloadManager.Request(android.net.Uri.parse(url))
+            .setTitle("Stow Update")
+            .setDescription("Downloading update $fileName")
+            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(this, android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+
+        val downloadManager = getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+        val downloadId = downloadManager.enqueue(request)
+
+        downloadReceiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
+                val id = intent.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                if (id == downloadId) {
+                    installApk(fileName)
+                    try {
+                        unregisterReceiver(this)
+                    } catch (e: Exception) {}
+                    downloadReceiver = null
+                }
+            }
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(downloadReceiver, android.content.IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE), android.content.Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(downloadReceiver, android.content.IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
+        Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun installApk(fileName: String) {
+        try {
+            val file = java.io.File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), fileName)
+            if (!file.exists()) return
+
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                file
+            )
+
+            val installIntent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            startActivity(installIntent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to install update: ${e.message}", Toast.LENGTH_SHORT).show()
+            e.printStackTrace()
+        }
     }
 }
