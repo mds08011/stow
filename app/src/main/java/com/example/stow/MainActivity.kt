@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
                         isRecording = true
                         btnRecord.text = "Stop Recording"
                         tvTranscription.text = "Recording..."
+                        tvTranscription.scrollTo(0, 0)
                         
                         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
                         var isBluetooth = false
@@ -87,12 +88,14 @@ class MainActivity : AppCompatActivity() {
                         isRecording = false
                         btnRecord.text = "Start Recording"
                         tvTranscription.text = "Uploading and Transcribing..."
+                        tvTranscription.scrollTo(0, 0)
                         chronometer.stop()
                         chronometer.base = SystemClock.elapsedRealtime()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                     RecordingService.STATE_SUCCESS -> {
                         tvTranscription.text = text
+                        tvTranscription.scrollTo(0, 0)
                         
                         val usage = intent.getIntExtra(RecordingService.EXTRA_USAGE, -1)
                         if (usage != -1) {
@@ -105,6 +108,7 @@ class MainActivity : AppCompatActivity() {
                         isRecording = false
                         btnRecord.text = "Start Recording"
                         tvTranscription.text = text ?: "An error occurred"
+                        tvTranscription.scrollTo(0, 0)
                         chronometer.stop()
                         chronometer.base = SystemClock.elapsedRealtime()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
