@@ -14,7 +14,6 @@ import android.media.MediaRecorder
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
-import android.os.Environment
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import android.content.pm.ServiceInfo
@@ -23,7 +22,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -42,6 +40,8 @@ class RecordingService : Service() {
         const val ACTION_STOP = "ACTION_STOP"
         const val EXTRA_API_KEY = "EXTRA_API_KEY"
         const val EXTRA_JARGON = "EXTRA_JARGON"
+        /** When true, skip clipboard so the UI can polish first, then copy the final text. */
+        const val EXTRA_DEFER_CLIPBOARD = "EXTRA_DEFER_CLIPBOARD"
         
         const val BROADCAST_STATE = "com.example.stow.STATE_UPDATE"
         const val EXTRA_STATE = "EXTRA_STATE"
@@ -57,6 +57,7 @@ class RecordingService : Service() {
 
     private var apiKey: String = ""
     private var jargon: String = ""
+    private var deferClipboard: Boolean = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent != null) {
@@ -64,6 +65,7 @@ class RecordingService : Service() {
                 ACTION_START -> {
                     apiKey = intent.getStringExtra(EXTRA_API_KEY) ?: ""
                     jargon = intent.getStringExtra(EXTRA_JARGON) ?: ""
+                    deferClipboard = intent.getBooleanExtra(EXTRA_DEFER_CLIPBOARD, false)
                     startRecording()
                 }
                 ACTION_STOP -> stopRecording()
@@ -196,8 +198,10 @@ class RecordingService : Service() {
                             file.delete()
                         }
                         
-                        saveToLog(text)
-                        copyToClipboard(text)
+                        TranscriptionHistory.append(this@RecordingService, text, polished = false)
+                        if (!deferClipboard) {
+                            copyToClipboard(text)
+                        }
                         
                         val newTotalUsage = updateUsage(durationSeconds)
                         
@@ -260,26 +264,6 @@ class RecordingService : Service() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Transcription", text)
         clipboard.setPrimaryClip(clip)
-    }
-
-    private fun saveToLog(text: String) {
-        try {
-            val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            if (documentsDir != null && !documentsDir.exists()) {
-                documentsDir.mkdirs()
-            }
-            val logFile = File(documentsDir, "Stow_Log.txt")
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-            val timeStamp = dateFormat.format(Date())
-            
-            val entry = "--- $timeStamp ---\n$text\n\n"
-            
-            FileOutputStream(logFile, true).use {
-                it.write(entry.toByteArray())
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
     }
 
     private fun updateUsage(durationSeconds: Int): Int {

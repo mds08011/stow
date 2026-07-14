@@ -271,6 +271,8 @@ class MainActivity : AppCompatActivity() {
             action = RecordingService.ACTION_START
             putExtra(RecordingService.EXTRA_API_KEY, getApiKey())
             putExtra(RecordingService.EXTRA_JARGON, getJargon())
+            // When auto-polish is on, wait for the polish dialog before touching the clipboard.
+            putExtra(RecordingService.EXTRA_DEFER_CLIPBOARD, isAutoPolishEnabled())
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -336,7 +338,8 @@ class MainActivity : AppCompatActivity() {
                     tvTranscription.scrollTo(0, 0)
                     Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
                     if (autoTriggered) {
-                        // Raw transcript was already copied by RecordingService
+                        // Clipboard was deferred; fall back to raw so the user still has usable text.
+                        copyToClipboard(rawText)
                         Toast.makeText(
                             this@MainActivity,
                             "Using raw transcription (copied to clipboard)",
@@ -403,22 +406,15 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Nothing to copy", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                copyToClipboard(finalText)
-                tvTranscription.text = finalText
-                tvTranscription.scrollTo(0, 0)
-                lastRawTranscription = rawText
-                btnPolish.isEnabled = true
+                acceptFinalText(finalText, rawText, polished = true)
                 Toast.makeText(this, "Polished text copied to clipboard", Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton("Use raw") { _, _ ->
-                copyToClipboard(rawText)
-                tvTranscription.text = rawText
-                tvTranscription.scrollTo(0, 0)
-                lastRawTranscription = rawText
-                btnPolish.isEnabled = true
+                acceptFinalText(rawText, rawText, polished = false)
                 Toast.makeText(this, "Raw text copied to clipboard", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Close") { _, _ ->
+                // Keep polished on screen without forcing clipboard or history changes.
                 tvTranscription.text = polishedText
                 tvTranscription.scrollTo(0, 0)
                 lastRawTranscription = rawText
@@ -426,6 +422,21 @@ class MainActivity : AppCompatActivity() {
             }
             .setCancelable(true)
             .show()
+    }
+
+    /**
+     * Apply the user's chosen final text: clipboard, UI, and history (polished entries only).
+     * Raw text is already logged by [RecordingService] at transcription time.
+     */
+    private fun acceptFinalText(finalText: String, rawText: String, polished: Boolean) {
+        copyToClipboard(finalText)
+        tvTranscription.text = finalText
+        tvTranscription.scrollTo(0, 0)
+        lastRawTranscription = rawText
+        btnPolish.isEnabled = true
+        if (polished && finalText.isNotBlank()) {
+            TranscriptionHistory.append(this, finalText, polished = true)
+        }
     }
 
     private fun copyToClipboard(text: String) {
@@ -536,18 +547,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showHistoryDialog() {
-        var content = ""
-        try {
-            val documentsDir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
-            val logFile = java.io.File(documentsDir, "Stow_Log.txt")
-            if (logFile.exists()) {
-                content = logFile.readText()
-            } else {
-                content = "No recording history found."
-            }
-        } catch (e: Exception) {
-            content = "Error reading history: ${e.message}"
-        }
+        val content = TranscriptionHistory.readAll(this)
         
         val scrollView = android.widget.ScrollView(this)
         val textView = TextView(this).apply {
