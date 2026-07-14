@@ -2,6 +2,8 @@ package com.example.stow
 
 import android.Manifest
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -13,10 +15,12 @@ import android.os.SystemClock
 import android.text.util.Linkify
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.Chronometer
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -30,6 +34,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
 
     private lateinit var sharedPreferences: SharedPreferences
+    private val polisher = TranscriptionPolisher()
 
     private lateinit var btnRecord: Button
     private lateinit var tvTranscription: TextView
@@ -42,8 +47,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvUsage: TextView
     private lateinit var tvVersion: TextView
     private lateinit var btnHistory: Button
+    private lateinit var btnPolish: Button
 
     private var isRecording = false
+    private var lastRawTranscription: String = ""
+    private var isPolishing = false
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -57,6 +65,8 @@ class MainActivity : AppCompatActivity() {
                         btnRecord.text = "Stop Recording"
                         tvTranscription.text = "Recording..."
                         tvTranscription.scrollTo(0, 0)
+                        btnPolish.isEnabled = false
+                        lastRawTranscription = ""
                         
                         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
                         var isBluetooth = false
@@ -89,12 +99,15 @@ class MainActivity : AppCompatActivity() {
                         btnRecord.text = "Start Recording"
                         tvTranscription.text = "Uploading and Transcribing..."
                         tvTranscription.scrollTo(0, 0)
+                        btnPolish.isEnabled = false
                         chronometer.stop()
                         chronometer.base = SystemClock.elapsedRealtime()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                     RecordingService.STATE_SUCCESS -> {
-                        tvTranscription.text = text
+                        val transcription = text.orEmpty()
+                        lastRawTranscription = transcription
+                        tvTranscription.text = transcription
                         tvTranscription.scrollTo(0, 0)
                         
                         val usage = intent.getIntExtra(RecordingService.EXTRA_USAGE, -1)
@@ -102,13 +115,20 @@ class MainActivity : AppCompatActivity() {
                             updateUsageText(usage)
                         }
 
-                        Toast.makeText(this@MainActivity, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        if (isAutoPolishEnabled() && transcription.isNotBlank()) {
+                            startPolish(transcription, autoTriggered = true)
+                        } else {
+                            btnPolish.isEnabled = transcription.isNotBlank()
+                            Toast.makeText(this@MainActivity, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     RecordingService.STATE_ERROR -> {
                         isRecording = false
                         btnRecord.text = "Start Recording"
                         tvTranscription.text = text ?: "An error occurred"
                         tvTranscription.scrollTo(0, 0)
+                        btnPolish.isEnabled = false
+                        lastRawTranscription = ""
                         chronometer.stop()
                         chronometer.base = SystemClock.elapsedRealtime()
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -135,6 +155,7 @@ class MainActivity : AppCompatActivity() {
         tvUsage = findViewById(R.id.tvUsage)
         tvVersion = findViewById(R.id.tvVersion)
         btnHistory = findViewById(R.id.btnHistory)
+        btnPolish = findViewById(R.id.btnPolish)
 
         tvVersion.text = "v${BuildConfig.VERSION_NAME}"
         loadInitialUsage()
@@ -157,6 +178,20 @@ class MainActivity : AppCompatActivity() {
         
         btnHistory.setOnClickListener {
             checkStoragePermissionAndShowHistory()
+        }
+
+        btnPolish.setOnClickListener {
+            val raw = lastRawTranscription.ifBlank {
+                tvTranscription.text?.toString().orEmpty()
+            }
+            if (raw.isBlank() || raw == "Transcription will appear here..." ||
+                raw == "Recording..." || raw == "Uploading and Transcribing..." ||
+                raw == "Polishing..."
+            ) {
+                Toast.makeText(this, "No transcription to polish", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            startPolish(raw, autoTriggered = false)
         }
 
         btnRecord.setOnClickListener {
@@ -259,6 +294,146 @@ class MainActivity : AppCompatActivity() {
         return sharedPreferences.getString("api_jargon", "")
     }
 
+    private fun isAutoPolishEnabled(): Boolean {
+        return sharedPreferences.getBoolean(PREF_AUTO_POLISH, false)
+    }
+
+    private fun startPolish(rawText: String, autoTriggered: Boolean) {
+        if (isPolishing) {
+            Toast.makeText(this, "Polish already in progress", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val apiKey = getApiKey().orEmpty()
+        if (apiKey.isBlank()) {
+            Toast.makeText(this, "Set your Groq API key in Settings first", Toast.LENGTH_SHORT).show()
+            showApiKeyDialog()
+            return
+        }
+
+        isPolishing = true
+        btnPolish.isEnabled = false
+        val previousText = tvTranscription.text?.toString().orEmpty()
+        tvTranscription.text = "Polishing..."
+        tvTranscription.scrollTo(0, 0)
+
+        polisher.polish(
+            rawText = rawText,
+            apiKey = apiKey,
+            jargon = getJargon().orEmpty(),
+            onSuccess = { polished ->
+                runOnUiThread {
+                    isPolishing = false
+                    btnPolish.isEnabled = true
+                    showPolishResultDialog(rawText, polished)
+                }
+            },
+            onError = { error ->
+                runOnUiThread {
+                    isPolishing = false
+                    btnPolish.isEnabled = rawText.isNotBlank()
+                    tvTranscription.text = if (previousText == "Polishing...") rawText else previousText.ifBlank { rawText }
+                    tvTranscription.scrollTo(0, 0)
+                    Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
+                    if (autoTriggered) {
+                        // Raw transcript was already copied by RecordingService
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Using raw transcription (copied to clipboard)",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        )
+    }
+
+    private fun showPolishResultDialog(rawText: String, polishedText: String) {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val gap = (8 * density).toInt()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val rawLabel = TextView(this).apply {
+            text = "Raw transcription"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        val rawView = TextView(this).apply {
+            text = rawText
+            textSize = 14f
+            setTextIsSelectable(true)
+            setPadding(0, 0, 0, gap)
+        }
+
+        val polishedLabel = TextView(this).apply {
+            text = "Polished (editable)"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, gap, 0, 0)
+        }
+        val polishedInput = EditText(this).apply {
+            setText(polishedText)
+            textSize = 16f
+            minLines = 4
+            maxLines = 12
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            setPadding(gap, gap, gap, gap)
+        }
+
+        container.addView(rawLabel)
+        container.addView(rawView)
+        container.addView(polishedLabel)
+        container.addView(polishedInput)
+
+        val scrollView = ScrollView(this).apply {
+            addView(container)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Polish result")
+            .setView(scrollView)
+            .setPositiveButton("Copy polished") { _, _ ->
+                val finalText = polishedInput.text.toString().trim()
+                if (finalText.isEmpty()) {
+                    Toast.makeText(this, "Nothing to copy", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                copyToClipboard(finalText)
+                tvTranscription.text = finalText
+                tvTranscription.scrollTo(0, 0)
+                lastRawTranscription = rawText
+                btnPolish.isEnabled = true
+                Toast.makeText(this, "Polished text copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Use raw") { _, _ ->
+                copyToClipboard(rawText)
+                tvTranscription.text = rawText
+                tvTranscription.scrollTo(0, 0)
+                lastRawTranscription = rawText
+                btnPolish.isEnabled = true
+                Toast.makeText(this, "Raw text copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close") { _, _ ->
+                tvTranscription.text = polishedText
+                tvTranscription.scrollTo(0, 0)
+                lastRawTranscription = rawText
+                btnPolish.isEnabled = true
+            }
+            .setCancelable(true)
+            .show()
+    }
+
+    private fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Transcription", text)
+        clipboard.setPrimaryClip(clip)
+    }
+
     private fun showApiKeyDialog() {
         val builder = AlertDialog.Builder(this)
         builder.setTitle("Settings")
@@ -270,7 +445,22 @@ class MainActivity : AppCompatActivity() {
 
         val apiKeyInput = EditText(this)
         apiKeyInput.setText(getApiKey())
+        apiKeyInput.hint = "Groq API key"
         layout.addView(apiKeyInput)
+
+        val autoPolishCheckbox = CheckBox(this).apply {
+            text = "Auto-polish after transcription"
+            isChecked = isAutoPolishEnabled()
+            setPadding(0, 24, 0, 0)
+        }
+        layout.addView(autoPolishCheckbox)
+
+        val autoPolishHint = TextView(this).apply {
+            text = "When enabled, Stow runs a second Groq pass to clean fillers and grammar. You can still polish manually with the Polish button."
+            textSize = 12f
+            setPadding(8, 8, 8, 0)
+        }
+        layout.addView(autoPolishHint)
 
         builder.setView(layout)
 
@@ -278,6 +468,7 @@ class MainActivity : AppCompatActivity() {
             val key = apiKeyInput.text.toString().trim()
             sharedPreferences.edit()
                 .putString("api_key", key)
+                .putBoolean(PREF_AUTO_POLISH, autoPolishCheckbox.isChecked)
                 .apply()
             dialog.dismiss()
         }
@@ -512,5 +703,9 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Failed to install update: ${e.message}", Toast.LENGTH_SHORT).show()
             e.printStackTrace()
         }
+    }
+
+    companion object {
+        private const val PREF_AUTO_POLISH = "auto_polish"
     }
 }
