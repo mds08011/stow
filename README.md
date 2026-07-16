@@ -11,7 +11,7 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
 * **Instant Clipboard:** Once transcribed, the text is automatically copied to your Android clipboard for immediate use in any other app.
-* **Optional Post-Transcription Polish:** Clean up fillers, false starts, and grammar with a fast Groq chat model. Use a one-tap Polish button, or enable auto-polish in Settings. Jargon Dictionary terms are applied for project names and technical vocabulary.
+* **Optional Post-Transcription Polish:** Light cleanup for short voice notes—removes fillers, fixes spelling/grammar/punctuation, and applies only very light rephrasing for readability. Does not rewrite, expand, or change the speaker’s voice. One-tap **Polish** button or optional auto-polish in Settings; you can always keep the raw transcript. Uses a free-tier-friendly Groq chat model and applies Jargon Dictionary terms for project names and technical vocabulary. See [docs/polishing-prompt.md](docs/polishing-prompt.md) for the exact prompt and design goals.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Secure API Key Management:** API keys are never hardcoded. You manage your key directly within the app, securely saved using Android SharedPreferences.
 * **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label.
@@ -114,13 +114,14 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 ### Jargon dictionary not improving accuracy enough
 * Add terms as a **comma-separated** list (e.g. `AcmeCorp, Kubernetes, HVAC, load path`).
 * Prefer exact spellings and product names you use often; jargon is sent as a Whisper prompt and reused when polishing.
-* Extremely noisy audio or heavy accents may still need a second pass—use **Polish** after transcription for grammar and filler cleanup.
+* Extremely noisy audio or heavy accents may still need a second pass—use **Polish** after transcription for light filler, spelling, and grammar cleanup.
 * Very long jargon lists can dilute the prompt; keep the list focused on high-value terms.
 
 ### Polish fails or seems unchanged
-* Polish requires the same Groq API key and network access as transcription.
+* Polish requires the same Groq API key and network access as transcription and is designed to stay within Groq free-tier limits.
+* Polish only does light cleanup (fillers, spelling/grammar/punctuation, minimal rephrasing). It will not heavily rewrite or expand short notes; see [docs/polishing-prompt.md](docs/polishing-prompt.md).
 * If polish fails, the raw transcript remains available; you can still copy and edit it.
-* Disable **Auto-polish** in Settings if you prefer the original one-step clipboard flow.
+* Disable **Auto-polish** in Settings if you prefer the original one-step clipboard flow, or use **Copy raw** when the polish dialog appears.
 
 ### App will not install (sideload)
 * Enable install from unknown sources for the app you used to open the APK.
