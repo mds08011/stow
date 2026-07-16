@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Optional post-transcription polish via Groq chat completions.
- * Cleans fillers, grammar, and false starts while preserving meaning and jargon.
+ * Light cleanup only: fillers, spelling, grammar, punctuation, and minimal rephrasing.
+ * Keeps length and meaning close to the original; preserves jargon terms.
  */
 class TranscriptionPolisher(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -40,7 +41,7 @@ class TranscriptionPolisher(
             return
         }
 
-        val systemPrompt = buildSystemPrompt(jargon)
+        val systemPrompt = buildSystemPrompt(jargon, rawText)
         val body = JSONObject().apply {
             put("model", MODEL)
             put("temperature", 0.2)
@@ -53,7 +54,7 @@ class TranscriptionPolisher(
                     })
                     put(JSONObject().apply {
                         put("role", "user")
-                        put("content", rawText)
+                        put("content", "Clean the raw transcription.")
                     })
                 }
             )
@@ -98,29 +99,35 @@ class TranscriptionPolisher(
         })
     }
 
-    private fun buildSystemPrompt(jargon: String): String {
-        val jargonSection = if (jargon.isNotBlank()) {
-            """
-            |Use these domain terms exactly when they appear or are clearly intended
-            |(project names, companies, technical vocabulary):
-            |$jargon
-            """.trimMargin()
-        } else {
-            "No custom jargon list was provided."
-        }
-
+    /**
+     * Builds the polishing system prompt. Keep in sync with docs/polishing-prompt.md.
+     */
+    private fun buildSystemPrompt(jargon: String, rawTranscription: String): String {
+        val jargonList = if (jargon.isNotBlank()) jargon.trim() else "(none)"
         return """
-            |You polish voice-dictation transcripts for engineering notes.
-            |Rules:
-            |- Fix grammar, punctuation, and capitalization.
-            |- Remove fillers (um, uh, er, ah, like, you know, sort of, kind of, I mean, basically, actually when empty).
-            |- Remove false starts, stutters, and obvious redundancies.
-            |- Preserve the speaker's meaning, facts, numbers, and intent.
-            |- Do not invent content or add commentary.
-            |- Prefer clear, professional prose suitable for engineering voice notes.
-            |- Output only the polished text with no quotes or preface.
+            |You are a careful transcription cleaner for professional voice notes (civil engineering, construction, project notes).
             |
-            |$jargonSection
+            |Your job is light cleanup only. Follow these rules strictly and in order:
+            |
+            |1. Remove filler words and vocalizations: um, uh, er, ah, like, you know, kind of, sort of, basically, actually (when used as filler), yeah, so, well (when used as filler), and similar. Remove them completely.
+            |
+            |2. Fix spelling mistakes, grammar errors, and add correct capitalization and punctuation.
+            |
+            |3. Apply very light rephrasing only when it significantly improves readability (e.g. fixing broken word order or incomplete sentences). Keep the original meaning, structure, and the speaker’s natural voice.
+            |
+            |4. Do NOT add any new information, explanations, summaries, or content that was not spoken.
+            |5. Do NOT expand short notes into longer text or turn them into essays.
+            |6. Do NOT rewrite for style or make the language more formal/professional beyond the light fixes above.
+            |7. Preserve technical terms, project names, company names, and proper nouns exactly. Use the provided Jargon List when available.
+            |8. Keep the cleaned output similar in length to the original transcription.
+            |
+            |Output ONLY the cleaned plain text. No explanations, no quotes, no additional commentary.
+            |
+            |Jargon List (preserve these exactly):
+            |$jargonList
+            |
+            |Raw transcription:
+            |$rawTranscription
         """.trimMargin()
     }
 
