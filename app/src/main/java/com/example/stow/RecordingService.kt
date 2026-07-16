@@ -47,6 +47,7 @@ class RecordingService : Service() {
         const val EXTRA_STATE = "EXTRA_STATE"
         const val EXTRA_TEXT = "EXTRA_TEXT"
         const val EXTRA_USAGE = "EXTRA_USAGE"
+        const val EXTRA_DURATION = "EXTRA_DURATION"
         
         const val STATE_RECORDING = "ACTION_RECORDING_STARTED"
         const val STATE_LOADING = "ACTION_RECORDING_STOPPED"
@@ -198,14 +199,15 @@ class RecordingService : Service() {
                             file.delete()
                         }
                         
-                        TranscriptionHistory.append(this@RecordingService, text, polished = false)
+                        // History is saved by MainActivity when the result screen is shown,
+                        // so duration and polished text can be stored together.
                         if (!deferClipboard) {
                             copyToClipboard(text)
                         }
                         
                         val newTotalUsage = updateUsage(durationSeconds)
                         
-                        broadcastState(STATE_SUCCESS, text, newTotalUsage)
+                        broadcastState(STATE_SUCCESS, text, newTotalUsage, durationSeconds)
                     } catch (e: Exception) {
                         broadcastState(STATE_ERROR, "Error parsing response")
                     }
@@ -218,7 +220,12 @@ class RecordingService : Service() {
         })
     }
 
-    private fun broadcastState(state: String, text: String? = null, usage: Int = -1) {
+    private fun broadcastState(
+        state: String,
+        text: String? = null,
+        usage: Int = -1,
+        durationSeconds: Int = -1
+    ) {
         val intent = Intent(BROADCAST_STATE).apply {
             setPackage(packageName)
             putExtra(EXTRA_STATE, state)
@@ -227,6 +234,9 @@ class RecordingService : Service() {
             }
             if (usage != -1) {
                 putExtra(EXTRA_USAGE, usage)
+            }
+            if (durationSeconds >= 0) {
+                putExtra(EXTRA_DURATION, durationSeconds)
             }
         }
         sendBroadcast(intent)
