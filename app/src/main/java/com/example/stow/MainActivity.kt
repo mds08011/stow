@@ -467,7 +467,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(autoPolishCheckbox)
 
         val autoPolishHint = TextView(this).apply {
-            text = "When enabled, Stow runs a second Groq pass to clean fillers and grammar. You can still polish manually with the Polish button."
+            text = "When enabled, Stow runs a second free-tier-friendly Groq pass for light cleanup only (fillers, spelling, grammar, punctuation; minimal rephrasing). It does not rewrite or expand your notes. You can still polish manually with the Polish button, or keep the raw transcript."
             textSize = 12f
             setPadding(8, 8, 8, 0)
         }
