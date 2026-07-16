@@ -58,7 +58,6 @@
         android:text="Start Recording"
         android:textSize="24sp"
         android:layout_marginTop="8dp"
-        app:layout_constraintBottom_toTopOf="@+id/tvTranscription"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tvMicIndicator" />
@@ -85,17 +84,75 @@
         app:layout_constraintEnd_toEndOf="parent" />
 
     <TextView
-        android:id="@+id/tvTranscription"
+        android:id="@+id/tvResultLabel"
         android:layout_width="0dp"
-        android:layout_height="0dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Transcription will appear here..."
-        android:textSize="18sp"
-        android:scrollbars="vertical"
-        app:layout_constraintBottom_toTopOf="@+id/tvVersion"
+        android:text="Result (editable)"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tvUsage" />
+
+    <EditText
+        android:id="@+id/etTranscription"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:background="@android:drawable/edit_text"
+        android:gravity="top|start"
+        android:hint="Transcription will appear here..."
+        android:inputType="textMultiLine|textCapSentences"
+        android:minLines="4"
+        android:padding="12dp"
+        android:scrollbars="vertical"
+        android:textSize="18sp"
+        android:focusable="false"
+        android:focusableInTouchMode="false"
+        android:cursorVisible="false"
+        android:longClickable="true"
+        app:layout_constraintBottom_toTopOf="@+id/resultActionRow"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/tvResultLabel" />
+
+    <LinearLayout
+        android:id="@+id/resultActionRow"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@+id/tvVersion"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <Button
+            android:id="@+id/btnCopyResult"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:text="Copy" />
+
+        <Button
+            android:id="@+id/btnShareResult"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:text="Share" />
+
+        <Button
+            android:id="@+id/btnDiscardResult"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="New" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tvVersion"
