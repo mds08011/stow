@@ -134,24 +134,8 @@
             android:id="@+id/btnCopyResult"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:text="Copy" />
-
-        <Button
-            android:id="@+id/btnShareResult"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="6dp"
-            android:layout_weight="1"
-            android:text="Share" />
-
-        <Button
-            android:id="@+id/btnDiscardResult"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="New" />
     </LinearLayout>
 
     <TextView
