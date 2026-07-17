@@ -4,7 +4,7 @@ A lightweight, highly accurate Android dictation app built for speed, privacy, a
 
 Unlike heavy offline apps that drain battery and overheat your phone by running massive AI models locally, **Stow** acts as a lightning-fast API wrapper. It records your audio and offloads the heavy lifting to the [Groq API](https://groq.com/), utilizing the `whisper-large-v3-turbo` model for near-instant, desktop-grade transcriptions directly on your mobile device.
 
-**Current version: 2.3**
+**Current version: 2.4**
 
 ## Features
 * **Massive AI Models, Zero Hardware Tax:** Uses Whisper Large-v3-Turbo without competing with Android's system processes for memory.
@@ -12,11 +12,11 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **No Artificial Limits:** Record as long as you need without hardcoded 30-second cutoffs.
 * **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
-* **Editable Result Screen:** After transcription finishes (raw or after polish), Stow opens an editable multi-line result field so you can fix typos before exporting. Action buttons: **Copy** (clipboard), **Share** (system share sheet), and **New** (discard view and return to the main recording screen).
-* **Optional Post-Transcription Polish:** Light cleanup for short voice notes—removes fillers, fixes spelling/grammar/punctuation, and applies only very light rephrasing for readability. Does not rewrite, expand, or change the speaker’s voice. One-tap **Polish** button or optional auto-polish in Settings; choose polished or raw, then continue on the editable result screen. Uses a free-tier-friendly Groq chat model and applies Jargon Dictionary terms for project names and technical vocabulary. See [docs/polishing-prompt.md](docs/polishing-prompt.md) for the exact prompt and design goals.
+* **Editable Result Screen:** After you choose raw or polished (or when transcription finishes without polish), Stow **immediately copies** the selected text to the clipboard and opens an editable multi-line result field so you can fix typos if needed. The bottom action is **Copy** only (refresh the clipboard after edits). A **Start** button at the top (same style and position as the main recording screen) begins a brand-new recording and clears the current editable text.
+* **Optional Post-Transcription Polish:** Light cleanup for short voice notes—removes fillers, fixes spelling/grammar/punctuation, and applies only very light rephrasing for readability. Does not rewrite, expand, or change the speaker’s voice. One-tap **Polish** button or optional auto-polish in Settings; choose **Use Raw** or **Use Polished** to copy that text and open the editable result screen. Uses a free-tier-friendly Groq chat model and applies Jargon Dictionary terms for project names and technical vocabulary. See [docs/polishing-prompt.md](docs/polishing-prompt.md) for the exact prompt and design goals.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Secure API Key Management:** API keys are never hardcoded. You manage your key directly within the app, securely saved using Android SharedPreferences.
-* **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.3** for this release).
+* **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.4** for this release).
 * **Editable Jargon Dictionary:** Save custom vocabulary to ensure highly accurate transcriptions for industry-specific terms. Accessed via its own dedicated button on the main screen.
 * **Full Local History:** Structured on-device history for each note (timestamp, duration when available, raw text, and polished text when polished). Browse a clean list with date/time and preview, **search by keyword**, open a detail view to copy, share, re-polish, edit/save, delete, or export a single note. Export the entire history as plain text via the system share sheet. Storage is local only (JSON under app Documents; legacy plain-text logs are migrated automatically).
 * **Material Design Icon:** Modern, minimal, adaptive vector launcher icon that looks great on any home screen.
@@ -28,7 +28,7 @@ Add screenshots under a `screenshots/` folder (or link images from GitHub Releas
 | Screen | What to show |
 |--------|----------------|
 | **Main screen** | Large Start Recording button, mic indicator (Internal / Bluetooth), live chronometer, daily usage line, empty transcription area, version label, and toolbar icons (Jargon, Info, Settings). |
-| **Editable result** | Multi-line editable transcript after a successful run, with **Copy**, **Share**, and **New** actions. |
+| **Editable result** | Multi-line editable transcript after a successful run (text already copied on choice), with a top **Start** button and a bottom **Copy** action. |
 | **Recording notification** | Android status bar / notification shade while recording: "Stow — Recording in progress..." with the **Stop Recording** action. Optionally a second shot of "Uploading and Transcribing..." after stop. |
 | **Jargon editor** | Custom Vocabulary / Jargon dialog with comma-separated terms (e.g. project names, CAD, HVAC) and Save / Cancel. |
 | **History list** | Searchable Transcription History list with timestamps, optional duration, and short text previews. |
@@ -51,7 +51,7 @@ Example markdown once image files exist:
 ### Download the APK (recommended for most users)
 
 1. Open the [Stow Releases](https://github.com/mds08011/stow/releases) page on GitHub.
-2. Download the latest `.apk` asset (for example, `stow-app-v2.3.apk`).
+2. Download the latest `.apk` asset (for example, `stow-app-v2.4.apk`).
 3. On your Android device, open the downloaded file (from Chrome Downloads, Files, or your email client).
 4. If prompted, allow installation from that source:
    * **Android 8+:** Tap **Settings** when asked to allow installs from this app, enable **Allow from this source**, then return and install.
@@ -80,9 +80,9 @@ You can trigger a new release directly from the GitHub web interface:
 2. Click the 'Actions' tab.
 3. Click 'Build and Release APK' on the left sidebar.
 4. Click the 'Run workflow' dropdown button on the right side.
-5. Enter the desired version number (e.g., v2.3) and click the green 'Run workflow' button.
+5. Enter the desired version number (e.g., v2.4) and click the green 'Run workflow' button.
 
-Once triggered, the automated pipeline will build the app, rename the artifact dynamically (e.g., stow-app-v2.3.apk), and attach it to a new GitHub Release page for easy downloading.
+Once triggered, the automated pipeline will build the app, rename the artifact dynamically (e.g., stow-app-v2.4.apk), and attach it to a new GitHub Release page for easy downloading.
 
 ## Privacy & Permissions Explained
 
@@ -126,8 +126,8 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 ### Polish fails or seems unchanged
 * Polish requires the same Groq API key and network access as transcription and is designed to stay within Groq free-tier limits.
 * Polish only does light cleanup (fillers, spelling/grammar/punctuation, minimal rephrasing). It will not heavily rewrite or expand short notes; see [docs/polishing-prompt.md](docs/polishing-prompt.md).
-* If polish fails, the raw transcript is still offered on the editable result screen.
-* Disable **Auto-polish** in Settings if you prefer to go straight from transcription to the editable result screen with the raw text.
+* If polish fails, the raw transcript is still copied and offered on the editable result screen.
+* Disable **Auto-polish** in Settings if you prefer to go straight from transcription to the editable result screen with the raw text (still auto-copied).
 
 ### History search, export, or re-polish
 * History is local only. Clearing app data removes notes.
