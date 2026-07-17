@@ -56,8 +56,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnHistory: Button
     private lateinit var btnPolish: Button
     private lateinit var btnCopyResult: Button
-    private lateinit var btnShareResult: Button
-    private lateinit var btnDiscardResult: Button
 
     private var isRecording = false
     private var lastRawTranscription: String = ""
@@ -141,7 +139,11 @@ class MainActivity : AppCompatActivity() {
                                 polishedText = null,
                                 saveHistory = true
                             )
-                            Toast.makeText(this@MainActivity, "Transcription ready", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Transcription copied — edit if needed",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                     RecordingService.STATE_ERROR -> {
@@ -183,8 +185,6 @@ class MainActivity : AppCompatActivity() {
         btnHistory = findViewById(R.id.btnHistory)
         btnPolish = findViewById(R.id.btnPolish)
         btnCopyResult = findViewById(R.id.btnCopyResult)
-        btnShareResult = findViewById(R.id.btnShareResult)
-        btnDiscardResult = findViewById(R.id.btnDiscardResult)
 
         tvVersion.text = "v${BuildConfig.VERSION_NAME}"
         loadInitialUsage()
@@ -211,20 +211,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show()
         }
 
-        btnShareResult.setOnClickListener {
-            val text = currentEditableText()
-            if (text.isBlank()) {
-                Toast.makeText(this, "Nothing to share", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            persistEditedResult(text)
-            shareText(text, "Share transcription")
-        }
-
-        btnDiscardResult.setOnClickListener {
-            discardResultAndReturnToRecording()
-        }
-
         btnPolish.setOnClickListener {
             val raw = lastRawTranscription.ifBlank { currentEditableText() }
             if (!isUsableTranscription(raw)) {
@@ -238,6 +224,10 @@ class MainActivity : AppCompatActivity() {
             if (isRecording) {
                 stopRecording()
             } else {
+                // Leaving the editable result: save any edits, clear the field, start fresh.
+                if (showingResult) {
+                    prepareForNewRecording()
+                }
                 if (checkPermissions()) {
                     startRecording()
                 } else {
@@ -358,6 +348,9 @@ class MainActivity : AppCompatActivity() {
         tvResultLabel.visibility = View.GONE
         resultActionRow.visibility = View.GONE
         btnRecord.visibility = View.VISIBLE
+        if (!isRecording) {
+            btnRecord.text = "Start Recording"
+        }
         chronometer.visibility = View.VISIBLE
         setTranscriptionEditable(false)
     }
@@ -366,7 +359,9 @@ class MainActivity : AppCompatActivity() {
         showingResult = true
         tvResultLabel.visibility = View.VISIBLE
         resultActionRow.visibility = View.VISIBLE
-        btnRecord.visibility = View.GONE
+        // Keep Start at the same position as the main recording screen so the next take is one tap.
+        btnRecord.visibility = View.VISIBLE
+        btnRecord.text = "Start Recording"
         chronometer.visibility = View.GONE
         setTranscriptionEditable(true)
     }
@@ -386,7 +381,8 @@ class MainActivity : AppCompatActivity() {
         rawText: String,
         polishedText: String?,
         saveHistory: Boolean,
-        showingPolished: Boolean = polishedText != null && displayText == polishedText
+        showingPolished: Boolean = polishedText != null && displayText == polishedText,
+        autoCopy: Boolean = true
     ) {
         lastRawTranscription = rawText
         resultShowsPolished = showingPolished
@@ -405,7 +401,10 @@ class MainActivity : AppCompatActivity() {
             lastHistoryEntryId = entry?.id
         }
 
-        // Do not auto-copy; user chooses Copy on the result screen.
+        // Copy immediately so the text is ready to paste; bottom Copy updates after edits.
+        if (autoCopy && displayText.isNotBlank()) {
+            copyToClipboard(displayText)
+        }
     }
 
     private fun persistEditedResult(editedText: String) {
@@ -421,7 +420,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun discardResultAndReturnToRecording() {
+    /** Persist edits if needed and clear result state before a brand-new recording. */
+    private fun prepareForNewRecording() {
         val edited = currentEditableText()
         if (isUsableTranscription(edited)) {
             persistEditedResult(edited)
@@ -431,9 +431,11 @@ class MainActivity : AppCompatActivity() {
         lastHistoryEntryId = null
         resultShowsPolished = false
         btnPolish.isEnabled = false
-        showRecordingUi()
+        showingResult = false
+        tvResultLabel.visibility = View.GONE
+        resultActionRow.visibility = View.GONE
+        setTranscriptionEditable(false)
         setStatusText("Transcription will appear here...")
-        Toast.makeText(this, "Ready for a new recording", Toast.LENGTH_SHORT).show()
     }
 
     private fun startPolish(rawText: String, autoTriggered: Boolean) {
@@ -480,7 +482,7 @@ class MainActivity : AppCompatActivity() {
                         )
                         Toast.makeText(
                             this@MainActivity,
-                            "Polish failed — showing raw transcription",
+                            "Polish failed — raw transcription copied",
                             Toast.LENGTH_LONG
                         ).show()
                     } else {
@@ -589,10 +591,13 @@ class MainActivity : AppCompatActivity() {
                 etTranscription.setSelection(etTranscription.text?.length ?: 0)
                 lastRawTranscription = rawText
                 btnPolish.isEnabled = true
+                if (displayText.isNotBlank()) {
+                    copyToClipboard(displayText)
+                }
                 Toast.makeText(
                     this,
-                    if (chosePolished) "Polished text ready — edit, copy, or share"
-                    else "Raw text ready — edit, copy, or share",
+                    if (chosePolished) "Polished text copied — edit if needed"
+                    else "Raw text copied — edit if needed",
                     Toast.LENGTH_SHORT
                 ).show()
                 return
@@ -604,11 +609,13 @@ class MainActivity : AppCompatActivity() {
             rawText = rawText,
             polishedText = polishedForHistory,
             saveHistory = true,
-            showingPolished = chosePolished
+            showingPolished = chosePolished,
+            autoCopy = true
         )
         Toast.makeText(
             this,
-            if (chosePolished) "Polished text ready — edit, copy, or share" else "Raw text ready — edit, copy, or share",
+            if (chosePolished) "Polished text copied — edit if needed"
+            else "Raw text copied — edit if needed",
             Toast.LENGTH_SHORT
         ).show()
     }
@@ -927,7 +934,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(autoPolishCheckbox)
 
         val autoPolishHint = TextView(this).apply {
-            text = "When enabled, Stow runs a second free-tier-friendly Groq pass for light cleanup only (fillers, spelling, grammar, punctuation; minimal rephrasing). After polish (or raw transcription), you land on an editable result screen to correct, copy, or share. Disable this if you prefer the raw transcript only."
+            text = "When enabled, Stow runs a second free-tier-friendly Groq pass for light cleanup only (fillers, spelling, grammar, punctuation; minimal rephrasing). Choosing raw or polished copies the text immediately and opens the editable result screen. Disable this if you prefer the raw transcript only."
             textSize = 12f
             setPadding(8, 8, 8, 0)
         }
@@ -985,7 +992,7 @@ class MainActivity : AppCompatActivity() {
     private fun showInfoDialog() {
         val message = TextView(this).apply {
             text = "Stow is an open-source background dictation app.\n\n" +
-                "After each transcription you get an editable result screen: fix typos, then Copy, Share, or start a New recording.\n\n" +
+                "After each transcription, choose raw or polished — Stow copies your choice and opens an editable result screen. Use Copy to refresh the clipboard after edits, or Start at the top for the next recording.\n\n" +
                 "History stores timestamp, duration, raw, and polished text. Search, open a note, re-polish, export, or delete — all offline on device.\n\n" +
                 "View GitHub Repository:\nhttps://github.com/mds08011/stow\n\n" +
                 "View Changelog & Updates:\nhttps://github.com/mds08011/stow/releases"
