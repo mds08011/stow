@@ -14,8 +14,10 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Optional post-transcription polish via Groq chat completions.
- * Light cleanup only: fillers, spelling, grammar, punctuation, and minimal rephrasing.
- * Keeps length and meaning close to the original; preserves jargon terms.
+ *
+ * The behaviour is defined entirely by the caller-supplied system prompt, which comes from
+ * the selected [PolishPresets.Preset] (built via [PolishPresets.buildSystemPrompt] so the
+ * Jargon Dictionary is applied). The raw transcript is sent as the user message.
  */
 class TranscriptionPolisher(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -25,10 +27,13 @@ class TranscriptionPolisher(
         .build()
 ) {
 
+    /**
+     * @param systemPrompt the selected preset's prompt, already jargon-substituted.
+     */
     fun polish(
         rawText: String,
         apiKey: String,
-        jargon: String,
+        systemPrompt: String,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -40,8 +45,11 @@ class TranscriptionPolisher(
             onError("API key is missing")
             return
         }
+        if (systemPrompt.isBlank()) {
+            onError("Polish preset has no prompt text")
+            return
+        }
 
-        val systemPrompt = buildSystemPrompt(jargon, rawText)
         val body = JSONObject().apply {
             put("model", MODEL)
             put("temperature", 0.2)
@@ -54,7 +62,7 @@ class TranscriptionPolisher(
                     })
                     put(JSONObject().apply {
                         put("role", "user")
-                        put("content", "Clean the raw transcription.")
+                        put("content", rawText)
                     })
                 }
             )
@@ -97,38 +105,6 @@ class TranscriptionPolisher(
                 }
             }
         })
-    }
-
-    /**
-     * Builds the polishing system prompt. Keep in sync with docs/polishing-prompt.md.
-     */
-    private fun buildSystemPrompt(jargon: String, rawTranscription: String): String {
-        val jargonList = if (jargon.isNotBlank()) jargon.trim() else "(none)"
-        return """
-            |You are a careful transcription cleaner for professional voice notes (civil engineering, construction, project notes).
-            |
-            |Your job is light cleanup only. Follow these rules strictly and in order:
-            |
-            |1. Remove filler words and vocalizations: um, uh, er, ah, like, you know, kind of, sort of, basically, actually (when used as filler), yeah, so, well (when used as filler), and similar. Remove them completely.
-            |
-            |2. Fix spelling mistakes, grammar errors, and add correct capitalization and punctuation.
-            |
-            |3. Apply very light rephrasing only when it significantly improves readability (e.g. fixing broken word order or incomplete sentences). Keep the original meaning, structure, and the speaker’s natural voice.
-            |
-            |4. Do NOT add any new information, explanations, summaries, or content that was not spoken.
-            |5. Do NOT expand short notes into longer text or turn them into essays.
-            |6. Do NOT rewrite for style or make the language more formal/professional beyond the light fixes above.
-            |7. Preserve technical terms, project names, company names, and proper nouns exactly. Use the provided Jargon List when available.
-            |8. Keep the cleaned output similar in length to the original transcription.
-            |
-            |Output ONLY the cleaned plain text. No explanations, no quotes, no additional commentary.
-            |
-            |Jargon List (preserve these exactly):
-            |$jargonList
-            |
-            |Raw transcription:
-            |$rawTranscription
-        """.trimMargin()
     }
 
     companion object {

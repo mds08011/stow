@@ -163,15 +163,28 @@
             android:id="@+id/btnPolish"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="12dp"
             android:enabled="false"
             android:text="Polish" />
+
+        <Button
+            android:id="@+id/btnPolishPreset"
+            style="?attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:contentDescription="Polish preset"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:maxWidth="132dp"
+            android:textSize="12sp"
+            android:text="Clean prose ▾" />
 
         <Button
             android:id="@+id/btnHistory"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="View History" />
+            android:text="History" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

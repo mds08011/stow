@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvVersion: TextView
     private lateinit var btnHistory: Button
     private lateinit var btnPolish: Button
+    private lateinit var btnPolishPreset: Button
     private lateinit var btnCopyResult: Button
 
     private var isRecording = false
@@ -184,8 +185,10 @@ class MainActivity : AppCompatActivity() {
         tvVersion = findViewById(R.id.tvVersion)
         btnHistory = findViewById(R.id.btnHistory)
         btnPolish = findViewById(R.id.btnPolish)
+        btnPolishPreset = findViewById(R.id.btnPolishPreset)
         btnCopyResult = findViewById(R.id.btnCopyResult)
 
+        updatePresetButton()
         tvVersion.text = "v${BuildConfig.VERSION_NAME}"
         loadInitialUsage()
         showRecordingUi()
@@ -219,6 +222,8 @@ class MainActivity : AppCompatActivity() {
             }
             startPolish(raw, autoTriggered = false)
         }
+
+        btnPolishPreset.setOnClickListener { showPresetChooserDialog() }
 
         btnRecord.setOnClickListener {
             if (isRecording) {
@@ -331,7 +336,7 @@ class MainActivity : AppCompatActivity() {
         return text != "Transcription will appear here..." &&
             text != "Recording..." &&
             text != "Uploading and Transcribing..." &&
-            text != "Polishing..." &&
+            !text.startsWith(POLISHING_STATUS_PREFIX) &&
             text != "An error occurred"
     }
 
@@ -451,22 +456,27 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // Both manual and auto-polish use the currently selected preset; auto-polish has no
+        // UI moment of its own, so "last used" is the only sensible source.
+        val preset = PolishPresets.getSelected(this)
+        val systemPrompt = PolishPresets.buildSystemPrompt(preset, getJargon().orEmpty())
+
         isPolishing = true
         btnPolish.isEnabled = false
         val previousText = etTranscription.text?.toString().orEmpty()
         if (!showingResult) {
-            setStatusText("Polishing...")
+            setStatusText("Polishing with ${preset.name}...")
         }
 
         polisher.polish(
             rawText = rawText,
             apiKey = apiKey,
-            jargon = getJargon().orEmpty(),
+            systemPrompt = systemPrompt,
             onSuccess = { polished ->
                 runOnUiThread {
                     isPolishing = false
                     btnPolish.isEnabled = true
-                    showPolishResultDialog(rawText, polished)
+                    showPolishResultDialog(rawText, polished, preset.name)
                 }
             },
             onError = { error ->
@@ -488,7 +498,7 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         if (!showingResult) {
                             setStatusText(
-                                if (previousText == "Polishing...") rawText
+                                if (previousText.startsWith(POLISHING_STATUS_PREFIX)) rawText
                                 else previousText.ifBlank { rawText }
                             )
                         }
@@ -499,7 +509,7 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun showPolishResultDialog(rawText: String, polishedText: String) {
+    private fun showPolishResultDialog(rawText: String, polishedText: String, presetName: String) {
         val density = resources.displayMetrics.density
         val pad = (16 * density).toInt()
         val gap = (8 * density).toInt()
@@ -522,7 +532,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val polishedLabel = TextView(this).apply {
-            text = "Polished (preview)"
+            text = "Polished — $presetName (preview)"
             textSize = 13f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, gap, 0, 0)
@@ -884,13 +894,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val preset = PolishPresets.getSelected(this)
         isPolishing = true
-        Toast.makeText(this, "Re-polishing…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Re-polishing with ${preset.name}…", Toast.LENGTH_SHORT).show()
 
         polisher.polish(
             rawText = entry.rawText,
             apiKey = apiKey,
-            jargon = getJargon().orEmpty(),
+            systemPrompt = PolishPresets.buildSystemPrompt(preset, getJargon().orEmpty()),
             onSuccess = { polished ->
                 runOnUiThread {
                     isPolishing = false
@@ -908,6 +919,177 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    // endregion
+
+    // region Polish presets
+
+    private fun updatePresetButton() {
+        btnPolishPreset.text = "${PolishPresets.getSelected(this).name} ▾"
+    }
+
+    /** Quick selector: pick the preset the next polish will use. */
+    private fun showPresetChooserDialog() {
+        val presets = PolishPresets.getAll(this)
+        val selectedId = PolishPresets.getSelected(this).id
+        val names = presets.map { it.name }.toTypedArray()
+        val checked = presets.indexOfFirst { it.id == selectedId }
+
+        AlertDialog.Builder(this)
+            .setTitle("Polish preset")
+            .setSingleChoiceItems(names, checked) { dialog, which ->
+                PolishPresets.setSelected(this, presets[which].id)
+                updatePresetButton()
+                dialog.dismiss()
+                Toast.makeText(this, "Using \"${presets[which].name}\"", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Manage…") { _, _ -> showPresetManagerDialog() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showPresetManagerDialog() {
+        val presets = PolishPresets.getAll(this)
+        val labels = presets.map { preset ->
+            if (preset.isBuiltIn) "${preset.name}  ·  built-in" else preset.name
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Polish presets")
+            .setItems(labels) { _, which -> showPresetEditDialog(presets[which]) }
+            .setNeutralButton("Add new") { _, _ -> showPresetEditDialog(null) }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    /** @param existing null to create a new preset. */
+    private fun showPresetEditDialog(existing: PolishPresets.Preset?) {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val gap = (8 * density).toInt()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val nameLabel = TextView(this).apply {
+            text = "Name"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        val nameInput = EditText(this).apply {
+            setText(existing?.name.orEmpty())
+            hint = "Preset name"
+            setSingleLine(true)
+            textSize = 16f
+        }
+
+        val promptLabel = TextView(this).apply {
+            text = "System prompt"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, gap, 0, 0)
+        }
+        val promptInput = EditText(this).apply {
+            setText(existing?.prompt.orEmpty())
+            hint = "Instructions sent as the system message"
+            textSize = 14f
+            minLines = 6
+            maxLines = 16
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            setPadding(gap, gap, gap, gap)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+
+        val hint = TextView(this).apply {
+            text = "The transcript is sent separately as the user message. Jargon Dictionary " +
+                "terms are appended automatically, or inserted at " +
+                "${PolishPresets.JARGON_PLACEHOLDER} if you include it."
+            textSize = 12f
+            setPadding(0, gap, 0, 0)
+        }
+
+        container.addView(nameLabel)
+        container.addView(nameInput)
+        container.addView(promptLabel)
+        container.addView(promptInput)
+        container.addView(hint)
+
+        val scrollView = ScrollView(this).apply { addView(container) }
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "New preset" else "Edit preset")
+            .setView(scrollView)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel") { _, _ -> showPresetManagerDialog() }
+
+        // Built-ins can be restored to their shipped text; custom presets can be removed.
+        if (existing != null) {
+            if (existing.isBuiltIn) {
+                builder.setNeutralButton("Reset") { _, _ -> confirmResetPreset(existing) }
+            } else {
+                builder.setNeutralButton("Delete") { _, _ -> confirmDeletePreset(existing) }
+            }
+        }
+
+        val dialog = builder.create()
+        dialog.show()
+
+        // Override after show() so validation failures keep the dialog open.
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val name = nameInput.text.toString().trim()
+            val prompt = promptInput.text.toString().trim()
+            if (name.isEmpty() || prompt.isEmpty()) {
+                Toast.makeText(this, "Name and prompt are both required", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (existing == null) {
+                val created = PolishPresets.add(this, name, prompt)
+                if (created == null) {
+                    Toast.makeText(this, "Could not save preset", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                PolishPresets.setSelected(this, created.id)
+                Toast.makeText(this, "Preset saved and selected", Toast.LENGTH_SHORT).show()
+            } else {
+                PolishPresets.update(this, existing.copy(name = name, prompt = prompt))
+                Toast.makeText(this, "Preset saved", Toast.LENGTH_SHORT).show()
+            }
+            updatePresetButton()
+            dialog.dismiss()
+            showPresetManagerDialog()
+        }
+    }
+
+    private fun confirmResetPreset(preset: PolishPresets.Preset) {
+        AlertDialog.Builder(this)
+            .setTitle("Reset \"${preset.name}\"?")
+            .setMessage("Restores the built-in name and prompt text. Your edits to this preset are lost.")
+            .setPositiveButton("Reset") { _, _ ->
+                PolishPresets.resetToDefault(this, preset.id)
+                updatePresetButton()
+                Toast.makeText(this, "Preset reset", Toast.LENGTH_SHORT).show()
+                showPresetManagerDialog()
+            }
+            .setNegativeButton("Cancel") { _, _ -> showPresetManagerDialog() }
+            .show()
+    }
+
+    private fun confirmDeletePreset(preset: PolishPresets.Preset) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete \"${preset.name}\"?")
+            .setMessage("This permanently removes the preset.")
+            .setPositiveButton("Delete") { _, _ ->
+                PolishPresets.delete(this, preset.id)
+                updatePresetButton()
+                Toast.makeText(this, "Preset deleted", Toast.LENGTH_SHORT).show()
+                showPresetManagerDialog()
+            }
+            .setNegativeButton("Cancel") { _, _ -> showPresetManagerDialog() }
+            .show()
     }
 
     // endregion
@@ -934,11 +1116,18 @@ class MainActivity : AppCompatActivity() {
         layout.addView(autoPolishCheckbox)
 
         val autoPolishHint = TextView(this).apply {
-            text = "When enabled, Stow runs a second free-tier-friendly Groq pass for light cleanup only (fillers, spelling, grammar, punctuation; minimal rephrasing). Choosing raw or polished copies the text immediately and opens the editable result screen. Disable this if you prefer the raw transcript only."
+            text = "When enabled, Stow runs a second free-tier-friendly Groq pass using the selected polish preset. Choosing raw or polished copies the text immediately and opens the editable result screen. Disable this if you prefer the raw transcript only."
             textSize = 12f
             setPadding(8, 8, 8, 0)
         }
         layout.addView(autoPolishHint)
+
+        val presetsButton = Button(this).apply {
+            text = "Polish presets…"
+            setPadding(0, 24, 0, 0)
+            setOnClickListener { showPresetManagerDialog() }
+        }
+        layout.addView(presetsButton)
 
         builder.setView(layout)
 
@@ -1161,5 +1350,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PREF_AUTO_POLISH = "auto_polish"
+        /** Status messages during polish start with this; used to detect placeholder text. */
+        private const val POLISHING_STATUS_PREFIX = "Polishing"
     }
 }
