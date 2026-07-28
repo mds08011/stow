@@ -181,16 +181,22 @@ class RecordingService : Service() {
             return
         }
 
-        var prompt = "CAD, HVAC, structural load, thermodynamic, schematic"
-        if (jargon.isNotEmpty()) {
-            prompt += ", $jargon"
-        }
+        // Only the user's own vocabulary is sent. The Whisper prompt field is capped around
+        // 224 tokens, so a generic hardcoded seed used to crowd out the terms that actually
+        // matter for this user's work.
+        val prompt = jargon.trim()
 
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
             .addFormDataPart("model", "whisper-large-v3-turbo")
-            .addFormDataPart("prompt", prompt)
+            .addFormDataPart("language", "en")
+            .addFormDataPart("temperature", "0")
+            .apply {
+                if (prompt.isNotEmpty()) {
+                    addFormDataPart("prompt", prompt)
+                }
+            }
             .build()
 
         val request = Request.Builder()

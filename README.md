@@ -13,7 +13,7 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **No Artificial Limits:** Record as long as you need without hardcoded 30-second cutoffs.
 * **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
-* **Editable Result Screen:** After you choose raw or polished (or when transcription finishes without polish), Stow **immediately copies** the selected text to the clipboard and opens an editable multi-line result field so you can fix typos if needed. The bottom action is **Copy** only (refresh the clipboard after edits). A **Start** button at the top (same style and position as the main recording screen) begins a brand-new recording and clears the current editable text.
+* **Editable Result Screen:** After you choose raw or polished (or when transcription finishes without polish), Stow **immediately copies** the selected text to the clipboard and opens an editable multi-line result field so you can fix typos if needed. The field is labelled **Result — raw (editable)** or **Result — polished (editable)** so you always know which version you are looking at. The bottom action is **Copy** only (refresh the clipboard after edits). A **Start** button at the top (same style and position as the main recording screen) begins a brand-new recording and clears the current editable text.
 * **Optional Post-Transcription Polish:** One-tap **Polish** button or optional auto-polish in Settings; choose **Use Raw** or **Use Polished** to copy that text and open the editable result screen. Uses a free-tier-friendly Groq chat model and applies Jargon Dictionary terms for project names and technical vocabulary. See [docs/polishing-prompt.md](docs/polishing-prompt.md) for the prompt design and message structure.
 * **Polish Presets:** Polish behavior is driven by named, editable presets. Two ship built in:
   * **Clean prose** — the original light cleanup: removes fillers, fixes spelling/grammar/punctuation, applies only very light rephrasing. Does not rewrite, expand, or change the speaker’s voice.
@@ -132,8 +132,9 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 * Corporate or captive portals that block `api.groq.com` will prevent transcription and polish.
 
 ### Jargon dictionary not improving accuracy enough
-* Add terms as a **comma-separated** list (e.g. `AcmeCorp, Kubernetes, HVAC, load path`).
-* Prefer exact spellings and product names you use often; jargon is sent as a Whisper prompt and reused when polishing.
+* Add terms as a **comma-separated** list (e.g. `MGD, influent, clarifier, RAS, headworks, DI main, invert, SCADA, P2-141`).
+* Your terms are the **only** thing sent as the Whisper prompt — Stow no longer prepends a generic word list, so nothing competes with your vocabulary for the prompt's limited budget.
+* Prefer exact spellings, project names, and job numbers you use often; jargon is sent as a Whisper prompt and reused when polishing.
 * Extremely noisy audio or heavy accents may still need a second pass—use **Polish** after transcription for light filler, spelling, and grammar cleanup.
 * Very long jargon lists can dilute the prompt; keep the list focused on high-value terms.
 

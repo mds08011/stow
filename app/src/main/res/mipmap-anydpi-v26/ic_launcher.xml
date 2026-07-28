@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_stow_bg"/>
-    <foreground>
-        <inset android:drawable="@drawable/ic_stow_mic" android:inset="16dp" />
-    </foreground>
+    <foreground android:drawable="@drawable/ic_stow_mic"/>
+    <monochrome android:drawable="@drawable/ic_stow_mic"/>
 </adaptive-icon>

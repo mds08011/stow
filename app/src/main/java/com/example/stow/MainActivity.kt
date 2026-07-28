@@ -234,10 +234,8 @@ class MainActivity : AppCompatActivity() {
             if (isRecording) {
                 stopRecording()
             } else {
-                // Leaving the editable result: save any edits, clear the field, start fresh.
-                if (showingResult) {
-                    prepareForNewRecording()
-                }
+                // startRecording() clears the result screen — doing it here instead would
+                // wipe the user's text even when the permission request is then denied.
                 if (checkPermissions()) {
                     startRecording()
                 } else {
@@ -350,6 +348,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startRecording() {
+        // Leaving the editable result: save any edits, clear the field, start fresh. Done
+        // here (not on the button tap) so a denied permission never costs the user their text.
+        if (showingResult) {
+            prepareForNewRecording()
+        }
         val intent = Intent(this, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
             putExtra(RecordingService.EXTRA_API_KEY, getApiKey())
@@ -409,6 +412,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun showResultUi() {
         showingResult = true
+        // Name the variant on screen — without this there is no way to tell raw from
+        // polished once the text is in the editable field.
+        tvResultLabel.text = if (resultShowsPolished) {
+            "Result — polished (editable)"
+        } else {
+            "Result — raw (editable)"
+        }
         tvResultLabel.visibility = View.VISIBLE
         resultActionRow.visibility = View.VISIBLE
         // Keep Start at the same position as the main recording screen so the next take is one tap.
@@ -618,19 +628,16 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Polish result")
             .setView(scrollView)
+            // Two buttons, both honest. There used to be a third ("Close") that read as
+            // cancel but silently applied the polished text.
             .setPositiveButton("Use polished") { _, _ ->
                 val finalText = polishedInput.text.toString().trim().ifBlank { polishedText }
                 openResultAfterPolish(rawText, displayText = finalText, polishedForHistory = finalText, chosePolished = true)
             }
-            .setNeutralButton("Use raw") { _, _ ->
+            .setNegativeButton("Use raw") { _, _ ->
                 // Keep polished in history even if the user displays raw.
                 val polishedFinal = polishedInput.text.toString().trim().ifBlank { polishedText }
                 openResultAfterPolish(rawText, displayText = rawText, polishedForHistory = polishedFinal, chosePolished = false)
-            }
-            .setNegativeButton("Close") { _, _ ->
-                // Default to polished on the editable result screen.
-                val finalText = polishedInput.text.toString().trim().ifBlank { polishedText }
-                openResultAfterPolish(rawText, displayText = finalText, polishedForHistory = finalText, chosePolished = true)
             }
             .setCancelable(true)
             .setOnCancelListener {
@@ -1315,19 +1322,18 @@ class MainActivity : AppCompatActivity() {
                         val version = tagName.removePrefix("v")
                         val currentVersion = BuildConfig.VERSION_NAME
 
-                        try {
-                            if (version.toDouble() > currentVersion.toDouble() && downloadUrl.isNotEmpty()) {
-                                runOnUiThread {
-                                    showUpdateDialog(version, downloadUrl)
-                                }
-                            } else {
-                                runOnUiThread {
-                                    Toast.makeText(this@MainActivity, "App is up to date", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        } catch (_: NumberFormatException) {
+                        val comparison = compareVersions(version, currentVersion)
+                        if (comparison == null) {
                             runOnUiThread {
                                 Toast.makeText(this@MainActivity, "Error parsing version", Toast.LENGTH_SHORT).show()
+                            }
+                        } else if (comparison > 0 && downloadUrl.isNotEmpty()) {
+                            runOnUiThread {
+                                showUpdateDialog(version, downloadUrl)
+                            }
+                        } else {
+                            runOnUiThread {
+                                Toast.makeText(this@MainActivity, "App is up to date", Toast.LENGTH_SHORT).show()
                             }
                         }
                     } catch (e: Exception) {
@@ -1336,6 +1342,25 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    /**
+     * Compares dotted version strings component-wise: negative, zero or positive like
+     * [Comparator], or null when either side is not numeric.
+     *
+     * Replaces a toDouble() comparison that read "2.10" as 2.1 (so it would have gone
+     * backwards from 2.4) and threw outright on three-part tags such as "2.4.1".
+     */
+    private fun compareVersions(a: String, b: String): Int? {
+        val left = a.trim().removePrefix("v").split(".")
+        val right = b.trim().removePrefix("v").split(".")
+        val parts = maxOf(left.size, right.size)
+        for (i in 0 until parts) {
+            val l = (left.getOrNull(i) ?: "0").toIntOrNull() ?: return null
+            val r = (right.getOrNull(i) ?: "0").toIntOrNull() ?: return null
+            if (l != r) return l.compareTo(r)
+        }
+        return 0
     }
 
     private fun showUpdateDialog(version: String, downloadUrl: String) {
