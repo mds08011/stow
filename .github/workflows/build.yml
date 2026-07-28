@@ -1,7 +1,7 @@
 name: Build check
 
-# Compile-only verification. Does not tag, release, or publish an APK —
-# use "Build and Release APK" (release.yml) for that.
+# Compile-only verification of both build types. Does not tag, release, sign, or
+# publish an APK — use "Build and Release APK" (release.yml) for that.
 on:
   push:
   pull_request:
@@ -26,3 +26,9 @@ jobs:
 
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --console=plain
+
+      # No signing secrets here by design, so this produces an UNSIGNED APK. The point
+      # is to prove the release path builds at all — release.yml is the only place that
+      # signs and publishes.
+      - name: Assemble release APK (unsigned)
+        run: ./gradlew assembleRelease --console=plain
