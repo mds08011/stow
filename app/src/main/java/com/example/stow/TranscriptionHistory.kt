@@ -212,7 +212,10 @@ object TranscriptionHistory {
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
             val duration = if (obj.isNull("durationSeconds")) null else obj.optInt("durationSeconds")
-            val polished = if (obj.isNull("polishedText")) null else obj.optString("polishedText", null)
+            // isNull() already covers both a missing key and an explicit null, so the
+            // single-argument optString is enough — passing a null fallback made Kotlin
+            // infer Nothing? for the parameter.
+            val polished = if (obj.isNull("polishedText")) null else obj.optString("polishedText")
             list.add(
                 Entry(
                     id = obj.getString("id"),
