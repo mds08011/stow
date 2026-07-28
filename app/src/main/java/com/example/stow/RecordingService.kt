@@ -48,6 +48,19 @@ class RecordingService : Service() {
         const val EXTRA_TEXT = "EXTRA_TEXT"
         const val EXTRA_USAGE = "EXTRA_USAGE"
         const val EXTRA_DURATION = "EXTRA_DURATION"
+        /** Id of the history entry the service already saved for this transcription. */
+        const val EXTRA_ENTRY_ID = "EXTRA_ENTRY_ID"
+
+        const val PREFS_NAME = "StowPrefs"
+        /** Set when a transcription was saved but no UI has shown it yet. */
+        const val PREF_PENDING_RESULT_ID = "pending_result_id"
+        /** MainActivity keeps this current so the service knows whether to notify. */
+        const val PREF_UI_VISIBLE = "ui_visible"
+
+        private const val RECORDING_NOTIFICATION_ID = 1
+        const val RESULT_NOTIFICATION_ID = 2
+        private const val RECORDING_CHANNEL_ID = "StowChannel"
+        private const val RESULT_CHANNEL_ID = "StowResultChannel"
         
         const val STATE_RECORDING = "ACTION_RECORDING_STARTED"
         const val STATE_LOADING = "ACTION_RECORDING_STOPPED"
@@ -85,7 +98,7 @@ class RecordingService : Service() {
         }
         val stopPendingIntent = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         
-        val notification: Notification = NotificationCompat.Builder(this, "StowChannel")
+        val notification: Notification = NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
             .setContentTitle("Stow")
             .setContentText("Recording in progress...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
@@ -93,11 +106,16 @@ class RecordingService : Service() {
             .build()
             
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            startForeground(RECORDING_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         } else {
-            startForeground(1, notification)
+            startForeground(RECORDING_NOTIFICATION_ID, notification)
         }
-        
+
+        // A new take supersedes any unclaimed previous result.
+        prefs().edit().remove(PREF_PENDING_RESULT_ID).apply()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .cancel(RESULT_NOTIFICATION_ID)
+
         audioFile = File(externalCacheDir, "audio_record.m4a")
 
         mediaRecorder = MediaRecorder().apply {
@@ -132,12 +150,12 @@ class RecordingService : Service() {
             isRecording = false
             
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val notification: Notification = NotificationCompat.Builder(this, "StowChannel")
+            val notification: Notification = NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
                 .setContentTitle("Stow")
                 .setContentText("Uploading and Transcribing...")
                 .setSmallIcon(android.R.drawable.ic_popup_sync)
                 .build()
-            notificationManager.notify(1, notification)
+            notificationManager.notify(RECORDING_NOTIFICATION_ID, notification)
             
             broadcastState(STATE_LOADING)
 
@@ -198,16 +216,34 @@ class RecordingService : Service() {
                         if (file.exists()) {
                             file.delete()
                         }
-                        
-                        // History is saved by MainActivity when the result screen is shown,
-                        // so duration and polished text can be stored together.
+
+                        // Save history here, not in the UI: the activity may already be stopped
+                        // (screen off, another app) and would never receive the broadcast, which
+                        // used to lose the transcription outright. MainActivity updates this same
+                        // entry with polished/edited text later.
+                        val entry = TranscriptionHistory.add(
+                            context = this@RecordingService,
+                            rawText = text,
+                            polishedText = null,
+                            durationSeconds = durationSeconds
+                        )
+                        if (entry != null) {
+                            prefs().edit().putString(PREF_PENDING_RESULT_ID, entry.id).apply()
+                        }
+
                         if (!deferClipboard) {
                             copyToClipboard(text)
                         }
-                        
+
                         val newTotalUsage = updateUsage(durationSeconds)
-                        
-                        broadcastState(STATE_SUCCESS, text, newTotalUsage, durationSeconds)
+
+                        broadcastState(STATE_SUCCESS, text, newTotalUsage, durationSeconds, entry?.id)
+
+                        // Clipboard writes are blocked for background apps on Android 10+, so a
+                        // notification is the only way to hand the result back when the UI is gone.
+                        if (entry != null && !prefs().getBoolean(PREF_UI_VISIBLE, false)) {
+                            showResultReadyNotification(text)
+                        }
                     } catch (e: Exception) {
                         broadcastState(STATE_ERROR, "Error parsing response")
                     }
@@ -224,7 +260,8 @@ class RecordingService : Service() {
         state: String,
         text: String? = null,
         usage: Int = -1,
-        durationSeconds: Int = -1
+        durationSeconds: Int = -1,
+        entryId: String? = null
     ) {
         val intent = Intent(BROADCAST_STATE).apply {
             setPackage(packageName)
@@ -238,19 +275,64 @@ class RecordingService : Service() {
             if (durationSeconds >= 0) {
                 putExtra(EXTRA_DURATION, durationSeconds)
             }
+            if (entryId != null) {
+                putExtra(EXTRA_ENTRY_ID, entryId)
+            }
         }
         sendBroadcast(intent)
     }
 
+    private fun prefs(): SharedPreferences =
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** Tappable hand-off when the transcription finished with no UI on screen. */
+    private fun showResultReadyNotification(text: String) {
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            openIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val preview = text.replace('\n', ' ').trim().let {
+            if (it.length <= 80) it else it.take(80).trimEnd() + "…"
+        }
+
+        val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
+            .setContentTitle("Transcription ready")
+            .setContentText(preview)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
+            .setSmallIcon(android.R.drawable.ic_menu_edit)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(RESULT_NOTIFICATION_ID, notification)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
-                "StowChannel",
-                "Stow Recording Channel",
-                NotificationManager.IMPORTANCE_LOW
-            )
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    RECORDING_CHANNEL_ID,
+                    "Stow Recording Channel",
+                    NotificationManager.IMPORTANCE_LOW
+                )
+            )
+            // Default importance: this one has to be noticeable, since it fires only when
+            // the app is not on screen and is the user's only route back to the result.
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    RESULT_CHANNEL_ID,
+                    "Stow Transcription Ready",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+            )
         }
     }
 

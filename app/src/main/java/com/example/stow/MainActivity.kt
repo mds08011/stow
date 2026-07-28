@@ -125,6 +125,11 @@ class MainActivity : AppCompatActivity() {
                         val duration = intent.getIntExtra(RecordingService.EXTRA_DURATION, -1)
                         lastDurationSeconds = if (duration >= 0) duration else null
 
+                        // The service already saved this note; adopt its entry rather than
+                        // creating a second one, and mark the hand-off as claimed.
+                        lastHistoryEntryId = intent.getStringExtra(RecordingService.EXTRA_ENTRY_ID)
+                        clearPendingResult()
+
                         val usage = intent.getIntExtra(RecordingService.EXTRA_USAGE, -1)
                         if (usage != -1) {
                             updateUsageText(usage)
@@ -250,11 +255,53 @@ class MainActivity : AppCompatActivity() {
         } else {
             registerReceiver(receiver, filter)
         }
+        sharedPreferences.edit().putBoolean(RecordingService.PREF_UI_VISIBLE, true).apply()
+        consumePendingResult()
     }
 
     override fun onStop() {
         super.onStop()
         unregisterReceiver(receiver)
+        sharedPreferences.edit().putBoolean(RecordingService.PREF_UI_VISIBLE, false).apply()
+    }
+
+    /**
+     * Picks up a transcription that finished while this activity was stopped. The service
+     * saves every result to history immediately, so nothing is lost when the broadcast has
+     * no live receiver — this is where the user finally sees it.
+     */
+    private fun consumePendingResult() {
+        val pendingId = sharedPreferences.getString(RecordingService.PREF_PENDING_RESULT_ID, null)
+            ?: return
+        clearPendingResult()
+        if (isRecording) return
+
+        val entry = TranscriptionHistory.getById(this, pendingId) ?: return
+
+        lastHistoryEntryId = entry.id
+        lastRawTranscription = entry.rawText
+        lastDurationSeconds = entry.durationSeconds
+
+        // Honour auto-polish for a result the user never got to see.
+        if (isAutoPolishEnabled() && entry.polishedText.isNullOrBlank() && entry.rawText.isNotBlank()) {
+            startPolish(entry.rawText, autoTriggered = true)
+            return
+        }
+
+        showEditableResult(
+            displayText = entry.displayText(),
+            rawText = entry.rawText,
+            polishedText = entry.polishedText,
+            saveHistory = false,
+            showingPolished = !entry.polishedText.isNullOrBlank()
+        )
+        Toast.makeText(this, "Transcription ready — copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun clearPendingResult() {
+        sharedPreferences.edit().remove(RecordingService.PREF_PENDING_RESULT_ID).apply()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager)
+            .cancel(RecordingService.RESULT_NOTIFICATION_ID)
     }
 
     override fun onDestroy() {
@@ -397,13 +444,28 @@ class MainActivity : AppCompatActivity() {
         btnPolish.isEnabled = rawText.isNotBlank()
 
         if (saveHistory && rawText.isNotBlank()) {
-            val entry = TranscriptionHistory.add(
-                context = this,
-                rawText = rawText,
-                polishedText = polishedText,
-                durationSeconds = lastDurationSeconds
-            )
-            lastHistoryEntryId = entry?.id
+            // The service saves the entry as soon as the transcription lands, so normally
+            // there is one to update. Only add when there genuinely isn't (e.g. polishing
+            // text that never came from a recording).
+            val existingId = lastHistoryEntryId
+            val existing = existingId?.let { TranscriptionHistory.getById(this, it) }
+            if (existing != null) {
+                TranscriptionHistory.update(
+                    this,
+                    existing.copy(
+                        rawText = rawText,
+                        polishedText = polishedText ?: existing.polishedText
+                    )
+                )
+            } else {
+                val entry = TranscriptionHistory.add(
+                    context = this,
+                    rawText = rawText,
+                    polishedText = polishedText,
+                    durationSeconds = lastDurationSeconds
+                )
+                lastHistoryEntryId = entry?.id
+            }
         }
 
         // Copy immediately so the text is ready to paste; bottom Copy updates after edits.

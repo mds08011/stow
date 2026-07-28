@@ -9,6 +9,7 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 ## Features
 * **Massive AI Models, Zero Hardware Tax:** Uses Whisper Large-v3-Turbo without competing with Android's system processes for memory.
 * **Background Recording (Foreground Service):** Safely minimize the app, turn off your screen, or use other apps like Google Maps while Stow continues to record completely uninterrupted in the background. Stop recording directly from the persistent notification.
+* **Nothing Is Lost If You Walk Away:** The transcription is saved to history the moment it arrives, even if Stow is not on screen. Lock your phone or switch apps while the upload finishes and you get a **Transcription ready** notification; tapping it (or just reopening Stow) restores the result screen with the text copied to your clipboard.
 * **No Artificial Limits:** Record as long as you need without hardcoded 30-second cutoffs.
 * **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
@@ -103,7 +104,7 @@ Stow requires a few permissions to function smoothly and securely:
 
 * **RECORD_AUDIO:** Essential for capturing your dictation.
 * **INTERNET:** Required to securely transmit your audio to the Groq API for transcription (and optionally to polish text via chat completions).
-* **POST_NOTIFICATIONS & FOREGROUND_SERVICE:** Android requires these to allow the app to continue recording in the background. This ensures your dictation isn't interrupted even if you minimize Stow, turn off your screen, or use other apps like Google Maps. The persistent notification lets you know Stow is actively recording and gives you a quick way to stop it.
+* **POST_NOTIFICATIONS & FOREGROUND_SERVICE:** Android requires these to allow the app to continue recording in the background. This ensures your dictation isn't interrupted even if you minimize Stow, turn off your screen, or use other apps like Google Maps. The persistent notification lets you know Stow is actively recording and gives you a quick way to stop it, and a second notification tells you when a transcription finished while you were in another app.
 
 History and notes stay on your device (app-private storage). Stow does not upload history to a third-party server beyond the transcription/polish API calls you initiate.
 
