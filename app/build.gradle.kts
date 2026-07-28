@@ -15,9 +15,28 @@ android {
         versionName = "2.5"
     }
 
+    // Release signing is supplied through environment variables so no keystore or
+    // password ever lives in the repo. CI populates these from GitHub Secrets; see
+    // docs/release-signing.md. A local release build without them is simply unsigned,
+    // and debug builds are unaffected.
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("STOW_KEYSTORE_FILE")
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("STOW_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("STOW_KEY_ALIAS")
+                keyPassword = System.getenv("STOW_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (System.getenv("STOW_KEYSTORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

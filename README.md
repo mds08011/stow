@@ -87,7 +87,15 @@ You can trigger a new release directly from the GitHub web interface:
 4. Click the 'Run workflow' dropdown button on the right side.
 5. Enter the desired version number (e.g., v2.5) and click the green 'Run workflow' button.
 
-Once triggered, the automated pipeline will build the app, rename the artifact dynamically (e.g., stow-app-v2.5.apk), and attach it to a new GitHub Release page for easy downloading.
+Once triggered, the automated pipeline will build a **signed** release APK, verify the signature, rename the artifact dynamically (e.g., stow-app-v2.5.apk), and attach it to a new GitHub Release page for easy downloading.
+
+Releasing requires four repository secrets holding the signing keystore. This is a one-time setup — see [docs/release-signing.md](docs/release-signing.md). Without them the workflow fails immediately rather than publishing an APK that cannot be upgraded in place.
+
+## Upgrading & data safety
+
+History lives in app-specific storage on your device. It is **not** backed up to any server, and **uninstalling Stow deletes it**. Before any upgrade that requires an uninstall, open **History → Export all** and save the export via the share sheet.
+
+From v2.5 onward every release is signed with the same key, so updates install in place and history survives. Upgrading *from* a pre-v2.5 build is the one exception and needs a single uninstall/reinstall — export first.
 
 ## Privacy & Permissions Explained
 
@@ -143,4 +151,4 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 ### App will not install (sideload)
 * Enable install from unknown sources for the app you used to open the APK.
 * Download the full APK again if the file was truncated.
-* Uninstall any older debug build with a different signing key before installing a release APK, if Android reports a signature conflict.
+* **Signature conflict when upgrading from a pre-v2.5 build:** releases before v2.5 were each signed with a throwaway key, so they cannot be upgraded in place. Open **History → Export all** and save the export, then uninstall Stow and install the new APK. This is a one-time step — v2.5 and later share a stable signing key and install over each other normally. See [docs/release-signing.md](docs/release-signing.md).

@@ -1,12 +1,16 @@
 name: Build and Release APK
 
+# Builds a SIGNED release APK and publishes it to a GitHub Release.
+# Requires four repository secrets — see docs/release-signing.md for one-time setup:
+#   STOW_KEYSTORE_BASE64, STOW_KEYSTORE_PASSWORD, STOW_KEY_ALIAS, STOW_KEY_PASSWORD
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version Tag (e.g., v1.5)'
+        description: 'Version Tag (e.g., v2.5)'
         required: true
-        default: 'v1.5'
+        default: 'v2.5'
 
 jobs:
   build:
@@ -20,21 +24,48 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: gradle
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.STOW_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::STOW_KEYSTORE_BASE64 is not set. Every release would be signed with a"
+            echo "::error::throwaway key, breaking in-place upgrades. See docs/release-signing.md."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/stow-release.keystore"
+
+      - name: Build Release APK
+        env:
+          STOW_KEYSTORE_FILE: ${{ runner.temp }}/stow-release.keystore
+          STOW_KEYSTORE_PASSWORD: ${{ secrets.STOW_KEYSTORE_PASSWORD }}
+          STOW_KEY_ALIAS: ${{ secrets.STOW_KEY_ALIAS }}
+          STOW_KEY_PASSWORD: ${{ secrets.STOW_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --console=plain
+
+      - name: Verify the APK is signed
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
 
       - name: Rename APK with Version Tag
         run: |
-          mkdir -p restored-artifacts
-          mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/stow-app-${{ github.event.inputs.version }}.apk
+          mv app/build/outputs/apk/release/app-release.apk \
+             "app/build/outputs/apk/release/stow-app-${{ github.event.inputs.version }}.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           tag_name: ${{ github.event.inputs.version }}
-          files: app/build/outputs/apk/debug/stow-app-${{ github.event.inputs.version }}.apk
+          files: app/build/outputs/apk/release/stow-app-${{ github.event.inputs.version }}.apk
+
+      - name: Remove keystore from runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/stow-release.keystore"
