@@ -62,6 +62,8 @@ class RecordingService : Service() {
         /** Set when an upload failed and the audio is still on disk, ready to retry. */
         const val PREF_FAILED_AUDIO_PATH = "failed_audio_path"
         const val PREF_FAILED_AUDIO_DURATION = "failed_audio_duration"
+        /** Read by the Quick Settings tile, which has no binding to this service. */
+        const val PREF_IS_RECORDING = "is_recording"
 
         /** Groq's free tier rejects larger uploads; stay clear of the 25 MB ceiling. */
         private const val MAX_UPLOAD_BYTES = 24L * 1024 * 1024
@@ -155,6 +157,7 @@ class RecordingService : Service() {
                 prepare()
                 start()
                 isRecording = true
+                setRecordingFlag(true)
                 isPaused = false
                 accumulatedActiveMillis = 0L
                 segmentStartMillis = android.os.SystemClock.elapsedRealtime()
@@ -162,6 +165,7 @@ class RecordingService : Service() {
                 broadcastState(STATE_RECORDING)
             } catch (e: Exception) {
                 e.printStackTrace()
+                setRecordingFlag(false)
                 broadcastState(STATE_ERROR, "Failed to start recording")
                 stopSelf()
             }
@@ -173,7 +177,7 @@ class RecordingService : Service() {
         val builder = NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
             .setContentTitle("Stow")
             .setContentText(if (paused) "Recording paused" else "Recording in progress...")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_stat_mic)
             .setOngoing(true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -255,6 +259,7 @@ class RecordingService : Service() {
             val durationSeconds = activeSeconds()
             mediaRecorder = null
             isRecording = false
+            setRecordingFlag(false)
             isPaused = false
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -267,6 +272,8 @@ class RecordingService : Service() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            isRecording = false
+            setRecordingFlag(false)
             broadcastState(STATE_ERROR, "Failed to stop recording")
             stopForeground(true)
             stopSelf()
@@ -485,6 +492,12 @@ class RecordingService : Service() {
 
     private fun prefs(): SharedPreferences =
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** Committed synchronously so the tile never reads a stale value right after a tap. */
+    @Suppress("ApplySharedPref")
+    private fun setRecordingFlag(recording: Boolean) {
+        prefs().edit().putBoolean(PREF_IS_RECORDING, recording).commit()
+    }
 
     /** Tappable hand-off when the transcription finished with no UI on screen. */
     private fun showResultReadyNotification(text: String) {

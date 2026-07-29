@@ -33,10 +33,21 @@
             </intent-filter>
         </activity>
         
-        <service 
-            android:name=".RecordingService" 
+        <service
+            android:name=".RecordingService"
             android:foregroundServiceType="microphone|dataSync"
             android:exported="false" />
+
+        <service
+            android:name=".RecordingTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_mic"
+            android:label="Stow"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"
