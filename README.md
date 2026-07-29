@@ -19,7 +19,7 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
   * **Clean prose** — the original light cleanup: removes fillers, fixes spelling/grammar/punctuation, applies only very light rephrasing. Does not rewrite, expand, or change the speaker’s voice.
   * **Task capture** — turns a jumbled dictated capture into Markdown, splitting spoken action items into `- [ ]` checkboxes grouped by job (or Personal / Unsorted) and leaving everything else as prose under **Notes**.
 
-  Pick the preset from the compact selector next to **Polish**; the choice is remembered and is what auto-polish uses. Add your own presets, edit any prompt, rename, and delete custom ones under **Settings → Polish presets…**. The two built-ins can be reset to their shipped text but never deleted.
+  Pick the preset from the compact selector next to **Polish**; the choice is remembered and is what auto-polish uses. With auto-polish on there is **no confirmation step** — you land straight on the editable result with the polished text already copied, and a **Show raw / Show polished** toggle in the result header if you want the other version. Add your own presets, edit any prompt, rename, and delete custom ones under **Settings → Polish presets…**. The two built-ins can be reset to their shipped text but never deleted.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Secure API Key Management:** API keys are never hardcoded. You manage your key directly within the app, securely saved using Android SharedPreferences.
 * **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.5** for this release).
