@@ -10,7 +10,9 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **Massive AI Models, Zero Hardware Tax:** Uses Whisper Large-v3-Turbo without competing with Android's system processes for memory.
 * **Background Recording (Foreground Service):** Safely minimize the app, turn off your screen, or use other apps like Google Maps while Stow continues to record completely uninterrupted in the background. Stop recording directly from the persistent notification.
 * **Nothing Is Lost If You Walk Away:** The transcription is saved to history the moment it arrives, even if Stow is not on screen. Lock your phone or switch apps while the upload finishes and you get a **Transcription ready** notification; tapping it (or just reopening Stow) restores the result screen with the text copied to your clipboard.
-* **No Artificial Limits:** Record as long as you need without hardcoded 30-second cutoffs.
+* **No Artificial Limits:** Record as long as you need without hardcoded 30-second cutoffs. Audio is captured at 16 kHz mono (what Whisper uses anyway), so an hour of dictation is roughly 14 MB — well inside Groq's upload limit and quick to send on patchy site data.
+* **Pause & Resume:** Interrupted mid-note? Pause from the notification or the main screen and pick up where you left off. Paused time is excluded from the note's duration and your daily usage.
+* **Upload Retry:** A dropped connection retries once automatically. If it still fails, the audio is kept and a **Retry last upload** button appears on the main screen — a lost note becomes one tap instead of a re-dictation.
 * **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
 * **Editable Result Screen:** After you choose raw or polished (or when transcription finishes without polish), Stow **immediately copies** the selected text to the clipboard and opens an editable multi-line result field so you can fix typos if needed. The field is labelled **Result — raw (editable)** or **Result — polished (editable)** so you always know which version you are looking at. The bottom action is **Copy** only (refresh the clipboard after edits). A **Start** button at the top (same style and position as the main recording screen) begins a brand-new recording and clears the current editable text.
@@ -114,6 +116,8 @@ History and notes stay on your device (app-private storage). Stow does not uploa
 Stow needs **Microphone** access to record and (on Android 13+) **Notifications** for the foreground recording service. If recording fails with a permission toast, open **Settings → Apps → Stow → Permissions** and grant Microphone and Notifications, then try again.
 
 ### Recording stops when the screen is off or another app is open
+Stow asks once on first launch whether to run unrestricted, which handles this on most devices — if you tapped **Not now**, or your OEM needs more, work through the steps below.
+
 Aggressive battery savers can kill background work. While recording, keep Stow's notification visible and:
 1. Open **Settings → Apps → Stow → Battery** (wording varies by OEM).
 2. Set battery usage to **Unrestricted** / disable battery optimization for Stow.
@@ -127,9 +131,14 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 * HTTP 429 means rate or daily limits were hit; wait and retry, or check usage on the main screen (8h free-tier reference).
 
 ### Network / upload errors
-* "No active internet connection" means Wi‑Fi or mobile data is unavailable—reconnect and stop/start a new recording if needed.
-* Unstable networks can fail mid-upload; switch networks and try a shorter clip to verify.
+* **Your audio is not lost.** When an upload fails the recording stays on the device and a **Retry last upload** button appears on the main screen — reconnect and tap it. Stow also retries once by itself before giving up.
+* "No active internet connection" means Wi‑Fi or mobile data is unavailable—reconnect and use **Retry last upload**.
 * Corporate or captive portals that block `api.groq.com` will prevent transcription and polish.
+* "Recording too large to upload" means the clip exceeded Groq's ~25 MB limit (over two hours at Stow's bitrate). The audio is kept, but it needs splitting before it can be sent.
+* The saved audio is cleared once any transcription succeeds, so only the most recent failure is ever retryable.
+
+### Permissions and notifications
+* **POST_NOTIFICATIONS** is required for the recording notification, the pause/resume controls, and the "Transcription ready" hand-off. Denying it on Android 13+ blocks recording entirely.
 
 ### Jargon dictionary not improving accuracy enough
 * Add terms as a **comma-separated** list (e.g. `MGD, influent, clarifier, RAS, headworks, DI main, invert, SCADA, P2-141`).
