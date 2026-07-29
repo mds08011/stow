@@ -24,32 +24,30 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 
   Pick the preset from the compact selector next to **Polish**; the choice is remembered and is what auto-polish uses. With auto-polish on there is **no confirmation step** — you land straight on the editable result with the polished text already copied, and a **Show raw / Show polished** toggle in the result header if you want the other version. Add your own presets, edit any prompt, rename, and delete custom ones under **Settings → Polish presets…**. The two built-ins can be reset to their shipped text but never deleted.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
-* **Secure API Key Management:** API keys are never hardcoded. You manage your key directly within the app, securely saved using Android SharedPreferences.
+* **Your Own API Key:** Keys are never hardcoded. You manage your key inside the app, stored in app-private `SharedPreferences` on your device. It is not encrypted at rest, and it never leaves the phone except in calls to Groq.
 * **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.5** for this release).
 * **Editable Jargon Dictionary:** Save custom vocabulary to ensure highly accurate transcriptions for industry-specific terms. Accessed via its own dedicated button on the main screen.
 * **Full Local History:** Structured on-device history for each note (timestamp, duration when available, raw text, and polished text when polished). Browse a clean list with date/time and preview, **search by keyword**, open a detail view to copy, share, re-polish, edit/save, delete, or export a single note. Export the entire history as plain text via the system share sheet. Storage is local only (JSON under app Documents; legacy plain-text logs are migrated automatically).
-* **Material Design Icon:** Modern, minimal, adaptive vector launcher icon that looks great on any home screen.
+* **Material Design Icon:** Minimal adaptive vector launcher icon, correctly centred inside the circular mask, with a monochrome layer for Android 13+ themed icons.
 
 ## Screenshots
 
-Add screenshots under a `screenshots/` folder (or link images from GitHub Releases) and embed them here when available. Suggested captures:
+_Captures pending — see [screenshots/README.md](screenshots/README.md) for the shot list. The table below starts rendering as soon as the files are added._
 
-| Screen | What to show |
-|--------|----------------|
-| **Main screen** | Large Start Recording button, mic indicator (Internal / Bluetooth), live chronometer, daily usage line, empty transcription area, version label, and toolbar icons (Jargon, Info, Settings). |
-| **Editable result** | Multi-line editable transcript after a successful run (text already copied on choice), with a top **Start** button and a bottom **Copy** action. |
-| **Recording notification** | Android status bar / notification shade while recording: "Stow — Recording in progress..." with the **Stop Recording** action. Optionally a second shot of "Uploading and Transcribing..." after stop. |
-| **Jargon editor** | Custom Vocabulary / Jargon dialog with comma-separated terms (e.g. project names, CAD, HVAC) and Save / Cancel. |
-| **History list** | Searchable Transcription History list with timestamps, optional duration, and short text previews. |
-| **History detail** | Full note with Copy / More actions (Share, Export, Re-polish, Delete, Save edits). |
-
-Example markdown once image files exist:
-
-```markdown
 | Main | Result | History | Detail |
 |------|--------|---------|--------|
 | ![Main](screenshots/main.png) | ![Result](screenshots/result.png) | ![History](screenshots/history.png) | ![Detail](screenshots/detail.png) |
-```
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [docs/ui-flow.md](docs/ui-flow.md) | How a recording becomes text: state diagram, who owns each transition, error branches |
+| [docs/polishing-prompt.md](docs/polishing-prompt.md) | Polish preset system, both built-in prompts verbatim, request parameters, failure behaviour |
+| [docs/release-signing.md](docs/release-signing.md) | One-time keystore and GitHub Secrets setup for releases |
+| [docs/roadmap.md](docs/roadmap.md) | Principles, what is planned, and what has been deliberately declined |
+| [docs/assessment-2026-07.md](docs/assessment-2026-07.md) | Full codebase review the current work plan came from |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ## Prerequisites
 * A [Groq Console](https://console.groq.com/) account (Free Tier provides extensive usage).
@@ -109,7 +107,7 @@ Stow requires a few permissions to function smoothly and securely:
 * **INTERNET:** Required to securely transmit your audio to the Groq API for transcription (and optionally to polish text via chat completions).
 * **POST_NOTIFICATIONS & FOREGROUND_SERVICE:** Android requires these to allow the app to continue recording in the background. This ensures your dictation isn't interrupted even if you minimize Stow, turn off your screen, or use other apps like Google Maps. The persistent notification lets you know Stow is actively recording and gives you a quick way to stop it, and a second notification tells you when a transcription finished while you were in another app.
 
-History and notes stay on your device (app-private storage). Stow does not upload history to a third-party server beyond the transcription/polish API calls you initiate.
+History and notes stay on your device, in app-specific storage (`Android/data/com.example.stow/files/Documents`). Other apps cannot read it, but it is **not** backed up anywhere and **clearing app data or uninstalling deletes it** — use **History → Export all** to keep a copy. Stow does not upload history to any server beyond the transcription and polish API calls you initiate.
 
 ## Troubleshooting
 
