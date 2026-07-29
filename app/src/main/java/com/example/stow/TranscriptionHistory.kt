@@ -9,15 +9,27 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.Executors
 
 /**
  * Structured local transcription history.
  * Stored as JSON under app-specific Documents; migrates the legacy plain-text log once.
+ *
+ * Reads are served from an in-memory cache and writes are serialised onto a background
+ * thread, so callers on the UI thread never block on file IO. Both the activity and the
+ * recording service run in the same process, so a single cache is authoritative.
  */
 object TranscriptionHistory {
 
     private const val HISTORY_FILE_NAME = "stow_history.json"
     private const val LEGACY_LOG_FILE_NAME = "Stow_Log.txt"
+
+    @Volatile
+    private var cache: List<Entry>? = null
+
+    private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "stow-history-writer").apply { isDaemon = true }
+    }
 
     data class Entry(
         val id: String,
@@ -110,12 +122,15 @@ object TranscriptionHistory {
     fun getById(context: Context, id: String): Entry? =
         loadEntries(context).firstOrNull { it.id == id }
 
-    fun search(context: Context, query: String): List<Entry> {
+    fun search(context: Context, query: String): List<Entry> =
+        filterEntries(loadEntries(context), query)
+
+    /** Exposed for tests: the matching rule behind [search]. */
+    internal fun filterEntries(entries: List<Entry>, query: String): List<Entry> {
         val q = query.trim()
-        val all = loadEntries(context)
-        if (q.isEmpty()) return all
+        if (q.isEmpty()) return entries
         val lower = q.lowercase(Locale.getDefault())
-        return all.filter { entry ->
+        return entries.filter { entry ->
             entry.rawText.lowercase(Locale.getDefault()).contains(lower) ||
                 (entry.polishedText?.lowercase(Locale.getDefault())?.contains(lower) == true) ||
                 entry.formattedTimestamp().contains(q)
@@ -157,13 +172,15 @@ object TranscriptionHistory {
 
     @Synchronized
     private fun loadEntries(context: Context): List<Entry> {
-        return try {
+        cache?.let { return it }
+        val loaded = try {
             val file = historyFile(context)
             if (file.exists()) {
                 parseJson(file.readText())
             } else {
                 val migrated = migrateLegacyLog(context)
                 if (migrated.isNotEmpty()) {
+                    cache = migrated
                     saveEntries(context, migrated)
                 }
                 migrated
@@ -172,19 +189,38 @@ object TranscriptionHistory {
             e.printStackTrace()
             emptyList()
         }
+        cache = loaded
+        return loaded
     }
 
     @Synchronized
     private fun saveEntries(context: Context, entries: List<Entry>) {
-        try {
-            val array = JSONArray()
-            for (entry in entries) {
-                array.put(entryToJson(entry))
-            }
-            historyFile(context).writeText(array.toString(2))
+        cache = entries
+        // Resolve the file on the calling thread (it needs the Context), serialise and write
+        // on the writer thread so the UI never blocks on a full rewrite.
+        val file = try {
+            historyFile(context)
         } catch (e: Exception) {
             e.printStackTrace()
+            return
         }
+        val snapshot = entries.toList()
+        writeExecutor.execute {
+            try {
+                file.writeText(serializeEntries(snapshot))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** Exposed for tests: the exact JSON written to disk. */
+    internal fun serializeEntries(entries: List<Entry>): String {
+        val array = JSONArray()
+        for (entry in entries) {
+            array.put(entryToJson(entry))
+        }
+        return array.toString(2)
     }
 
     private fun entryToJson(entry: Entry): JSONObject {
@@ -205,7 +241,7 @@ object TranscriptionHistory {
         }
     }
 
-    private fun parseJson(json: String): List<Entry> {
+    internal fun parseJson(json: String): List<Entry> {
         if (json.isBlank()) return emptyList()
         val array = JSONArray(json)
         val list = ArrayList<Entry>(array.length())
@@ -233,7 +269,16 @@ object TranscriptionHistory {
         val logFile = legacyLogFile(context)
         if (!logFile.exists()) return emptyList()
         return try {
-            val content = logFile.readText()
+            parseLegacyLog(logFile.readText())
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /** Exposed for tests: parses the pre-JSON plain-text log format. */
+    internal fun parseLegacyLog(content: String): List<Entry> {
+        return try {
             if (content.isBlank()) return emptyList()
 
             val headerRegex = Regex("""^---\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})(?:\s*\((polished)\))?\s*---\s*$""")

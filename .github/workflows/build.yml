@@ -24,6 +24,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --console=plain
+
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --console=plain
 

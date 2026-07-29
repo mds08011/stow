@@ -61,4 +61,9 @@ dependencies {
     
     // OkHttp for networking
     implementation("com.squareup.okhttp3:okhttp:4.11.0")
+
+    testImplementation("junit:junit:4.13.2")
+    // The android.jar used by unit tests stubs org.json to throw; the real artifact on the
+    // test classpath makes the JSON parsing testable off-device.
+    testImplementation("org.json:json:20231013")
 }

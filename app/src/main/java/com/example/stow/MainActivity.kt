@@ -996,10 +996,17 @@ class MainActivity : AppCompatActivity() {
 
         refreshList("")
 
+        // Debounced so a fast typist does not re-filter the whole history on every keystroke.
+        val searchHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        var pendingSearch: Runnable? = null
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                refreshList(s?.toString().orEmpty())
+                pendingSearch?.let { searchHandler.removeCallbacks(it) }
+                val query = s?.toString().orEmpty()
+                val runnable = Runnable { refreshList(query) }
+                pendingSearch = runnable
+                searchHandler.postDelayed(runnable, SEARCH_DEBOUNCE_MILLIS)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
@@ -1654,6 +1661,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val PREF_AUTO_POLISH = "auto_polish"
         private const val PREF_ASKED_BATTERY_OPT = "asked_battery_opt"
+        private const val SEARCH_DEBOUNCE_MILLIS = 250L
 
         private const val STATE_SHOWING_RESULT = "showingResult"
         private const val STATE_SHOWS_POLISHED = "resultShowsPolished"
