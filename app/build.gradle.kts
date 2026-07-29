@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.stow"
+    namespace = "io.github.mds08011.stow"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.stow"
+        applicationId = "io.github.mds08011.stow"
         minSdk = 24
         targetSdk = 34
         versionCode = 14

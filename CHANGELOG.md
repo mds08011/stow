@@ -8,7 +8,9 @@ Versions before 2.5 are reconstructed from git history and are less detailed.
 
 The largest release so far: user-editable polish presets, a set of correctness fixes around losing data, and a working release pipeline.
 
-> **Upgrading from 2.4 or earlier requires one uninstall.** Releases before 2.5 were each signed with a throwaway key, so they cannot be upgraded in place. Open **History → Export all** and save the export first. From 2.5 onward updates install normally.
+> **Upgrading from 2.4 or earlier requires one uninstall.** Two things force it: releases before 2.5 were each signed with a throwaway key, and the application ID changed from the placeholder `com.example.stow` to `io.github.mds08011.stow`. Android treats the new ID as a different app, so 2.5 installs alongside the old one rather than over it.
+>
+> **Open History → Export all and save the export before upgrading**, then uninstall the old Stow, install 2.5, and re-enter your Groq API key and jargon terms. From 2.5 onward updates install normally and history persists.
 
 ### Added
 - **Polish presets** — named, editable prompts replacing the single hardcoded one. Two ship built in: **Clean prose** (the previous light-cleanup behaviour, unchanged) and **Task capture** (splits a dictated capture into Markdown checkboxes grouped by job). Add, rename, edit and delete your own; built-ins can be reset but not deleted.
@@ -23,6 +25,7 @@ The largest release so far: user-editable polish presets, a set of correctness f
 - `docs/ui-flow.md`, `docs/roadmap.md`, `docs/release-signing.md`, and this changelog.
 
 ### Changed
+- **Application ID is now `io.github.mds08011.stow`**, replacing the `com.example.stow` placeholder that Android Studio generates. `com.example` is reserved for samples and is not a namespace anyone owns. Bundled into this release deliberately, since it forces the same uninstall the signing change already required.
 - **Auto-polish no longer shows a confirmation dialog** — it goes straight to the editable result with the text copied. Manual **Polish** keeps the comparison dialog, now two buttons instead of three.
 - **Release APKs are signed with a stable key**, so updates install in place. Previously every release used a freshly generated debug key.
 - Audio is captured at **16 kHz mono, 32 kbps** — what Whisper uses anyway — cutting an hour of dictation to roughly 14 MB.

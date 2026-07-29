@@ -23,7 +23,6 @@ Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for t
 | Dated result-field background | `@android:drawable/edit_text` is a Holo 9-patch; renders poorly in dark mode |
 | Background upload errors are silent | A failed upload while backgrounded shows nothing until you reopen |
 | Encrypted API key storage | Judged not worth the dependency; README wording corrected instead |
-| `applicationId` still `com.example.stow` | Changing it forces a reinstall, so it must ride along with another forced-reinstall release |
 
 ## Deliberately declined
 

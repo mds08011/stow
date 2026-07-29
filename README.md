@@ -107,7 +107,7 @@ Stow requires a few permissions to function smoothly and securely:
 * **INTERNET:** Required to securely transmit your audio to the Groq API for transcription (and optionally to polish text via chat completions).
 * **POST_NOTIFICATIONS & FOREGROUND_SERVICE:** Android requires these to allow the app to continue recording in the background. This ensures your dictation isn't interrupted even if you minimize Stow, turn off your screen, or use other apps like Google Maps. The persistent notification lets you know Stow is actively recording and gives you a quick way to stop it, and a second notification tells you when a transcription finished while you were in another app.
 
-History and notes stay on your device, in app-specific storage (`Android/data/com.example.stow/files/Documents`). Other apps cannot read it, but it is **not** backed up anywhere and **clearing app data or uninstalling deletes it** — use **History → Export all** to keep a copy. Stow does not upload history to any server beyond the transcription and polish API calls you initiate.
+History and notes stay on your device, in app-specific storage (`Android/data/io.github.mds08011.stow/files/Documents`). Other apps cannot read it, but it is **not** backed up anywhere and **clearing app data or uninstalling deletes it** — use **History → Export all** to keep a copy. Stow does not upload history to any server beyond the transcription and polish API calls you initiate.
 
 ## Troubleshooting
 
@@ -161,4 +161,4 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 ### App will not install (sideload)
 * Enable install from unknown sources for the app you used to open the APK.
 * Download the full APK again if the file was truncated.
-* **Signature conflict when upgrading from a pre-v2.5 build:** releases before v2.5 were each signed with a throwaway key, so they cannot be upgraded in place. Open **History → Export all** and save the export, then uninstall Stow and install the new APK. This is a one-time step — v2.5 and later share a stable signing key and install over each other normally. See [docs/release-signing.md](docs/release-signing.md).
+* **Upgrading from a pre-v2.5 build needs a manual uninstall.** Releases before v2.5 were each signed with a throwaway key, and the app's package ID changed from `com.example.stow` to `io.github.mds08011.stow` — so Android sees v2.5 as a different app rather than an update, and may leave both installed. Open **History → Export all** and save the export, then uninstall the old Stow, install the new APK, and re-enter your API key and jargon terms. One-time only: v2.5 and later install over each other normally. See [docs/release-signing.md](docs/release-signing.md).

@@ -1,4 +1,4 @@
-package com.example.stow
+﻿package io.github.mds08011.stow
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -46,7 +46,7 @@ class RecordingService : Service() {
         /** When true, skip clipboard so the UI can polish first, then copy the final text. */
         const val EXTRA_DEFER_CLIPBOARD = "EXTRA_DEFER_CLIPBOARD"
         
-        const val BROADCAST_STATE = "com.example.stow.STATE_UPDATE"
+        const val BROADCAST_STATE = "io.github.mds08011.stow.STATE_UPDATE"
         const val EXTRA_STATE = "EXTRA_STATE"
         const val EXTRA_TEXT = "EXTRA_TEXT"
         const val EXTRA_USAGE = "EXTRA_USAGE"
@@ -146,7 +146,7 @@ class RecordingService : Service() {
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             // Whisper resamples to 16 kHz mono anyway, so matching it costs no accuracy and
-            // cuts the upload to roughly 14 MB/hour — the difference between a note landing
+            // cuts the upload to roughly 14 MB/hour â€” the difference between a note landing
             // and a note timing out on a weak site connection.
             setAudioChannels(1)
             setAudioSamplingRate(16000)
@@ -361,7 +361,7 @@ class RecordingService : Service() {
                 STATE_ERROR,
                 String.format(
                     Locale.getDefault(),
-                    "Recording too large to upload (%.1f MB — limit ~25 MB). The audio was kept; try splitting long recordings.",
+                    "Recording too large to upload (%.1f MB â€” limit ~25 MB). The audio was kept; try splitting long recordings.",
                     megabytes
                 )
             )
@@ -398,7 +398,7 @@ class RecordingService : Service() {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 // One automatic retry: field connectivity drops out for a moment far more
-                // often than it is genuinely unavailable. Do not stopSelf here — the service
+                // often than it is genuinely unavailable. Do not stopSelf here â€” the service
                 // has to stay alive to make the second attempt.
                 if (attempt == 0) {
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
@@ -512,7 +512,7 @@ class RecordingService : Service() {
         )
 
         val preview = text.replace('\n', ' ').trim().let {
-            if (it.length <= 80) it else it.take(80).trimEnd() + "…"
+            if (it.length <= 80) it else it.take(80).trimEnd() + "â€¦"
         }
 
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)

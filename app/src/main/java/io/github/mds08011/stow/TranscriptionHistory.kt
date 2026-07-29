@@ -1,4 +1,4 @@
-package com.example.stow
+﻿package io.github.mds08011.stow
 
 import android.content.Context
 import android.os.Environment
@@ -44,7 +44,7 @@ object TranscriptionHistory {
 
         fun preview(maxLen: Int = 80): String {
             val text = displayText().replace('\n', ' ').trim()
-            return if (text.length <= maxLen) text else text.take(maxLen).trimEnd() + "…"
+            return if (text.length <= maxLen) text else text.take(maxLen).trimEnd() + "â€¦"
         }
 
         fun formattedTimestamp(): String {
@@ -63,7 +63,7 @@ object TranscriptionHistory {
         fun toExportBlock(): String {
             val sb = StringBuilder()
             sb.append("--- ").append(formattedTimestamp())
-            formattedDuration()?.let { sb.append(" · ").append(it) }
+            formattedDuration()?.let { sb.append(" Â· ").append(it) }
             if (!polishedText.isNullOrBlank()) {
                 sb.append(" (polished)")
             }
@@ -249,7 +249,7 @@ object TranscriptionHistory {
             val obj = array.getJSONObject(i)
             val duration = if (obj.isNull("durationSeconds")) null else obj.optInt("durationSeconds")
             // isNull() already covers both a missing key and an explicit null, so the
-            // single-argument optString is enough — passing a null fallback made Kotlin
+            // single-argument optString is enough â€” passing a null fallback made Kotlin
             // infer Nothing? for the parameter.
             val polished = if (obj.isNull("polishedText")) null else obj.optString("polishedText")
             list.add(

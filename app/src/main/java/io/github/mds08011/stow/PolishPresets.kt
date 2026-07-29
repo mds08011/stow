@@ -1,4 +1,4 @@
-package com.example.stow
+﻿package io.github.mds08011.stow
 
 import android.content.Context
 import org.json.JSONArray
@@ -53,17 +53,17 @@ object PolishPresets {
         |
         |1. Remove filler words and vocalizations.
         |   Always remove: um, uh, er, ah, mm, hmm.
-        |   Remove only when clearly functioning as filler: like, you know, kind of, sort of, basically, actually, yeah, so, well. Keep them when they carry meaning — in "so the valve was closed" the word "so" is causal, and in "kind of a hairline crack" the phrase hedges a description. Both stay.
+        |   Remove only when clearly functioning as filler: like, you know, kind of, sort of, basically, actually, yeah, so, well. Keep them when they carry meaning â€” in "so the valve was closed" the word "so" is causal, and in "kind of a hairline crack" the phrase hedges a description. Both stay.
         |
         |2. Fix spelling mistakes, grammar errors, and add correct capitalization and punctuation.
         |
-        |3. Apply very light rephrasing only when it significantly improves readability (e.g. fixing broken word order or incomplete sentences). Keep the original meaning, structure, and the speaker’s natural voice.
+        |3. Apply very light rephrasing only when it significantly improves readability (e.g. fixing broken word order or incomplete sentences). Keep the original meaning, structure, and the speakerâ€™s natural voice.
         |
         |4. Do NOT add any new information, explanations, summaries, or content that was not spoken.
         |5. Do NOT expand short notes into longer text or turn them into essays.
         |6. Do NOT rewrite for style or make the language more formal/professional beyond the light fixes above.
         |7. Preserve technical terms, project names, company names, and proper nouns exactly. Use the provided Jargon List when available.
-        |8. Do NOT convert, round, reformat, or normalise numbers, units, measurements, dates, times, stationing, or identifiers — keep them exactly as spoken. "eight inch" stays "eight inch", not "8-inch"; "point two five MGD" stays as spoken. Preserve the speaker’s line breaks and list structure.
+        |8. Do NOT convert, round, reformat, or normalise numbers, units, measurements, dates, times, stationing, or identifiers â€” keep them exactly as spoken. "eight inch" stays "eight inch", not "8-inch"; "point two five MGD" stays as spoken. Preserve the speakerâ€™s line breaks and list structure.
         |9. Keep the cleaned output similar in length to the original transcription.
         |
         |Output ONLY the cleaned plain text. No explanations, no quotes, no additional commentary.
@@ -74,21 +74,21 @@ object PolishPresets {
     val DEFAULT_TASK_CAPTURE_PROMPT = """
         |You are polishing a dictated voice capture from a construction project
         |engineer. The capture may contain project tasks, personal tasks, general
-        |notes, or any jumbled mix — often switching topics mid-stream.
+        |notes, or any jumbled mix â€” often switching topics mid-stream.
         |
         |Output Markdown only. No preamble, no commentary, no code fences.
         |
         |Classify each item individually:
         |
-        |1. ACTION ITEMS — anything the speaker states as something to do — become
+        |1. ACTION ITEMS â€” anything the speaker states as something to do â€” become
         |   exactly one line each: "- [ ] <task>".
         |   Group them under headings in this priority:
         |   - "## <job>" when a job is named or clearly implied (e.g. 6100,
         |     P2-141, El Toro). Use the job name/number as spoken.
         |   - "## Personal" for personal errands and home tasks.
         |   - "## Unsorted" for action items with no clear home.
-        |2. EVERYTHING ELSE — thoughts, observations, meeting recap, journal
-        |   content — stays as cleaned-up prose or plain bullets under "## Notes",
+        |2. EVERYTHING ELSE â€” thoughts, observations, meeting recap, journal
+        |   content â€” stays as cleaned-up prose or plain bullets under "## Notes",
         |   in the order spoken.
         |
         |Rules:
