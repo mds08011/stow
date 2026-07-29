@@ -1,4 +1,4 @@
-﻿package io.github.mds08011.stow
+package io.github.mds08011.stow
 
 import okhttp3.Call
 import okhttp3.Callback
@@ -30,7 +30,7 @@ class TranscriptionPolisher(
     /**
      * @param systemPrompt the selected preset's prompt, already jargon-substituted.
      * @param enforceLengthGuard reject output that is wildly shorter or longer than the input.
-     *   Only meaningful for light-cleanup presets â€” a preset that restructures the text
+     *   Only meaningful for light-cleanup presets — a preset that restructures the text
      *   (Task capture, say) legitimately changes length and must not set this.
      */
     fun polish(
@@ -61,7 +61,7 @@ class TranscriptionPolisher(
             append(PolishPresets.TRANSCRIPT_END)
         }
 
-        // Roughly two tokens of headroom per token of input â€” enough for any preset that
+        // Roughly two tokens of headroom per token of input — enough for any preset that
         // restructures, while still capping a runaway generation on the free tier.
         val maxTokens = maxOf(256, (rawText.length / 3) * 2)
 
@@ -120,7 +120,7 @@ class TranscriptionPolisher(
                     if (enforceLengthGuard && rawText.length > LENGTH_GUARD_MIN_CHARS) {
                         val ratio = polished.length.toDouble() / rawText.length
                         if (ratio < LENGTH_GUARD_MIN_RATIO || ratio > LENGTH_GUARD_MAX_RATIO) {
-                            onError("Polish changed the text too much â€” keeping raw")
+                            onError("Polish changed the text too much — keeping raw")
                             return
                         }
                     }

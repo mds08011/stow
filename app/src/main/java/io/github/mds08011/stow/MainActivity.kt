@@ -1,4 +1,4 @@
-﻿package io.github.mds08011.stow
+package io.github.mds08011.stow
 
 import android.Manifest
 import android.content.BroadcastReceiver
@@ -176,7 +176,7 @@ class MainActivity : AppCompatActivity() {
                             )
                             Toast.makeText(
                                 this@MainActivity,
-                                "Transcription copied â€” edit if needed",
+                                "Transcription copied — edit if needed",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -239,7 +239,7 @@ class MainActivity : AppCompatActivity() {
         if (getApiKey().isNullOrEmpty()) {
             showApiKeyDialog()
         } else {
-            // Only once the app is actually usable â€” stacking two dialogs on first launch
+            // Only once the app is actually usable — stacking two dialogs on first launch
             // would bury the API key prompt.
             maybeAskBatteryOptimization()
         }
@@ -300,7 +300,7 @@ class MainActivity : AppCompatActivity() {
             if (isRecording) {
                 stopRecording()
             } else {
-                // startRecording() clears the result screen â€” doing it here instead would
+                // startRecording() clears the result screen — doing it here instead would
                 // wipe the user's text even when the permission request is then denied.
                 if (checkPermissions()) {
                     startRecording()
@@ -367,7 +367,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * Picks up a transcription that finished while this activity was stopped. The service
      * saves every result to history immediately, so nothing is lost when the broadcast has
-     * no live receiver â€” this is where the user finally sees it.
+     * no live receiver — this is where the user finally sees it.
      */
     private fun consumePendingResult() {
         val pendingId = sharedPreferences.getString(RecordingService.PREF_PENDING_RESULT_ID, null)
@@ -394,7 +394,7 @@ class MainActivity : AppCompatActivity() {
             saveHistory = false,
             showingPolished = !entry.polishedText.isNullOrBlank()
         )
-        Toast.makeText(this, "Transcription ready â€” copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Transcription ready — copied", Toast.LENGTH_SHORT).show()
     }
 
     private fun clearPendingResult() {
@@ -532,7 +532,7 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Keep recording reliable")
             .setMessage(
-                "Android's battery saver can kill Stow while it records in the background â€” " +
+                "Android's battery saver can kill Stow while it records in the background — " +
                     "the recording stops without warning when your screen is off or you switch apps.\n\n" +
                     "Allowing Stow to run unrestricted prevents that. Stow only uses power while " +
                     "you are actually recording."
@@ -547,7 +547,7 @@ class MainActivity : AppCompatActivity() {
                         )
                     )
                 } catch (e: Exception) {
-                    Toast.makeText(this, "Open Settings â†’ Apps â†’ Stow â†’ Battery", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Open Settings → Apps → Stow → Battery", Toast.LENGTH_LONG).show()
                 }
             }
             .setNegativeButton("Not now") { _, _ ->
@@ -570,12 +570,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun showResultUi() {
         showingResult = true
-        // Name the variant on screen â€” without this there is no way to tell raw from
+        // Name the variant on screen — without this there is no way to tell raw from
         // polished once the text is in the editable field.
         tvResultLabel.text = if (resultShowsPolished) {
-            "Result â€” polished (editable)"
+            "Result — polished (editable)"
         } else {
-            "Result â€” raw (editable)"
+            "Result — raw (editable)"
         }
         resultHeaderRow.visibility = View.VISIBLE
         resultActionRow.visibility = View.VISIBLE
@@ -642,7 +642,7 @@ class MainActivity : AppCompatActivity() {
             copyToClipboard(displayText)
         }
 
-        // After history is settled â€” the toggle depends on the entry having both versions.
+        // After history is settled — the toggle depends on the entry having both versions.
         updateVariantToggle()
     }
 
@@ -754,7 +754,7 @@ class MainActivity : AppCompatActivity() {
                     isPolishing = false
                     btnPolish.isEnabled = true
                     if (autoTriggered) {
-                        // Auto-polish means "always polished" â€” confirming it on every note
+                        // Auto-polish means "always polished" — confirming it on every note
                         // is the friction the setting exists to remove. The result screen's
                         // Show raw toggle covers the times it gets it wrong.
                         openResultAfterPolish(
@@ -781,12 +781,12 @@ class MainActivity : AppCompatActivity() {
                         )
                         Toast.makeText(
                             this@MainActivity,
-                            "Polish failed â€” raw transcription copied",
+                            "Polish failed — raw transcription copied",
                             Toast.LENGTH_LONG
                         ).show()
                     } else {
                         // The transcript field was never overwritten by status text, so
-                        // there is nothing to restore â€” just clear the spinner message.
+                        // there is nothing to restore — just clear the spinner message.
                         setStatus("")
                         Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
                     }
@@ -818,7 +818,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val polishedLabel = TextView(this).apply {
-            text = "Polished â€” $presetName (preview)"
+            text = "Polished — $presetName (preview)"
             textSize = 13f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, gap, 0, 0)
@@ -890,8 +890,8 @@ class MainActivity : AppCompatActivity() {
                 updateVariantToggle()
                 Toast.makeText(
                     this,
-                    if (chosePolished) "Polished text copied â€” edit if needed"
-                    else "Raw text copied â€” edit if needed",
+                    if (chosePolished) "Polished text copied — edit if needed"
+                    else "Raw text copied — edit if needed",
                     Toast.LENGTH_SHORT
                 ).show()
                 return
@@ -908,8 +908,8 @@ class MainActivity : AppCompatActivity() {
         )
         Toast.makeText(
             this,
-            if (chosePolished) "Polished text copied â€” edit if needed"
-            else "Raw text copied â€” edit if needed",
+            if (chosePolished) "Polished text copied — edit if needed"
+            else "Raw text copied — edit if needed",
             Toast.LENGTH_SHORT
         ).show()
     }
@@ -940,7 +940,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val searchInput = EditText(this).apply {
-            hint = "Search notesâ€¦"
+            hint = "Search notes…"
             setSingleLine(true)
             textSize = 16f
         }
@@ -967,8 +967,8 @@ class MainActivity : AppCompatActivity() {
 
         fun labelsFor(entries: List<TranscriptionHistory.Entry>): List<String> {
             return entries.map { entry ->
-                val duration = entry.formattedDuration()?.let { " Â· $it" }.orEmpty()
-                val badge = if (!entry.polishedText.isNullOrBlank()) " Â· polished" else ""
+                val duration = entry.formattedDuration()?.let { " · $it" }.orEmpty()
+                val badge = if (!entry.polishedText.isNullOrBlank()) " · polished" else ""
                 "${entry.formattedTimestamp()}$duration$badge\n${entry.preview(90)}"
             }
         }
@@ -1046,7 +1046,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val meta = TextView(this).apply {
-            val duration = entry.formattedDuration()?.let { " Â· $it" }.orEmpty()
+            val duration = entry.formattedDuration()?.let { " · $it" }.orEmpty()
             text = "${entry.formattedTimestamp()}$duration"
             textSize = 13f
             setTextColor(0xFF888888.toInt())
@@ -1098,7 +1098,7 @@ class MainActivity : AppCompatActivity() {
             }
             .create()
 
-        dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Moreâ€¦") { _, _ ->
+        dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "More…") { _, _ ->
             // Overridden below after show so we can keep the dialog open / chain menus.
         }
 
@@ -1187,7 +1187,7 @@ class MainActivity : AppCompatActivity() {
 
         val preset = PolishPresets.getSelected(this)
         isPolishing = true
-        Toast.makeText(this, "Re-polishing with ${preset.name}â€¦", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Re-polishing with ${preset.name}…", Toast.LENGTH_SHORT).show()
 
         polisher.polish(
             rawText = entry.rawText,
@@ -1218,7 +1218,7 @@ class MainActivity : AppCompatActivity() {
     // region Polish presets
 
     private fun updatePresetButton() {
-        btnPolishPreset.text = "${PolishPresets.getSelected(this).name} â–¾"
+        btnPolishPreset.text = "${PolishPresets.getSelected(this).name} ▾"
     }
 
     /** Quick selector: pick the preset the next polish will use. */
@@ -1236,7 +1236,7 @@ class MainActivity : AppCompatActivity() {
                 dialog.dismiss()
                 Toast.makeText(this, "Using \"${presets[which].name}\"", Toast.LENGTH_SHORT).show()
             }
-            .setNeutralButton("Manageâ€¦") { _, _ -> showPresetManagerDialog() }
+            .setNeutralButton("Manage…") { _, _ -> showPresetManagerDialog() }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -1244,7 +1244,7 @@ class MainActivity : AppCompatActivity() {
     private fun showPresetManagerDialog() {
         val presets = PolishPresets.getAll(this)
         val labels = presets.map { preset ->
-            if (preset.isBuiltIn) "${preset.name}  Â·  built-in" else preset.name
+            if (preset.isBuiltIn) "${preset.name}  ·  built-in" else preset.name
         }.toTypedArray()
 
         AlertDialog.Builder(this)
@@ -1408,14 +1408,14 @@ class MainActivity : AppCompatActivity() {
         layout.addView(autoPolishCheckbox)
 
         val autoPolishHint = TextView(this).apply {
-            text = "When enabled, Stow runs a second free-tier-friendly Groq pass using the selected polish preset and goes straight to the editable result with the polished text already copied â€” no confirmation step. Use Show raw on the result screen if a polish goes wrong. Disable this to go straight to the raw transcript instead."
+            text = "When enabled, Stow runs a second free-tier-friendly Groq pass using the selected polish preset and goes straight to the editable result with the polished text already copied — no confirmation step. Use Show raw on the result screen if a polish goes wrong. Disable this to go straight to the raw transcript instead."
             textSize = 12f
             setPadding(8, 8, 8, 0)
         }
         layout.addView(autoPolishHint)
 
         val presetsButton = Button(this).apply {
-            text = "Polish presetsâ€¦"
+            text = "Polish presets…"
             setPadding(0, 24, 0, 0)
             setOnClickListener { showPresetManagerDialog() }
         }
@@ -1473,8 +1473,8 @@ class MainActivity : AppCompatActivity() {
     private fun showInfoDialog() {
         val message = TextView(this).apply {
             text = "Stow is an open-source background dictation app.\n\n" +
-                "After each transcription, choose raw or polished â€” Stow copies your choice and opens an editable result screen. Use Copy to refresh the clipboard after edits, or Start at the top for the next recording.\n\n" +
-                "History stores timestamp, duration, raw, and polished text. Search, open a note, re-polish, export, or delete â€” all offline on device.\n\n" +
+                "After each transcription, choose raw or polished — Stow copies your choice and opens an editable result screen. Use Copy to refresh the clipboard after edits, or Start at the top for the next recording.\n\n" +
+                "History stores timestamp, duration, raw, and polished text. Search, open a note, re-polish, export, or delete — all offline on device.\n\n" +
                 "View GitHub Repository:\nhttps://github.com/mds08011/stow\n\n" +
                 "View Changelog & Updates:\nhttps://github.com/mds08011/stow/releases"
             setPadding(50, 40, 50, 40)

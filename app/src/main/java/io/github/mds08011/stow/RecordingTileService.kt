@@ -1,4 +1,4 @@
-﻿package io.github.mds08011.stow
+package io.github.mds08011.stow
 
 import android.Manifest
 import android.app.PendingIntent
@@ -12,7 +12,7 @@ import androidx.core.content.ContextCompat
 
 /**
  * Quick Settings tile: start or stop a recording from the notification shade without
- * opening the app. This is the lowest-friction path to a note in the field â€” pull down,
+ * opening the app. This is the lowest-friction path to a note in the field — pull down,
  * one tap, start talking.
  *
  * When the app is not ready to record (no API key, missing microphone or notification

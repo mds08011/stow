@@ -1,4 +1,4 @@
-﻿package io.github.mds08011.stow
+package io.github.mds08011.stow
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

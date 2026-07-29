@@ -1,4 +1,4 @@
-﻿package io.github.mds08011.stow
+package io.github.mds08011.stow
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -146,7 +146,7 @@ class RecordingService : Service() {
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             // Whisper resamples to 16 kHz mono anyway, so matching it costs no accuracy and
-            // cuts the upload to roughly 14 MB/hour â€” the difference between a note landing
+            // cuts the upload to roughly 14 MB/hour — the difference between a note landing
             // and a note timing out on a weak site connection.
             setAudioChannels(1)
             setAudioSamplingRate(16000)
@@ -361,7 +361,7 @@ class RecordingService : Service() {
                 STATE_ERROR,
                 String.format(
                     Locale.getDefault(),
-                    "Recording too large to upload (%.1f MB â€” limit ~25 MB). The audio was kept; try splitting long recordings.",
+                    "Recording too large to upload (%.1f MB — limit ~25 MB). The audio was kept; try splitting long recordings.",
                     megabytes
                 )
             )
@@ -398,7 +398,7 @@ class RecordingService : Service() {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 // One automatic retry: field connectivity drops out for a moment far more
-                // often than it is genuinely unavailable. Do not stopSelf here â€” the service
+                // often than it is genuinely unavailable. Do not stopSelf here — the service
                 // has to stay alive to make the second attempt.
                 if (attempt == 0) {
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
@@ -512,7 +512,7 @@ class RecordingService : Service() {
         )
 
         val preview = text.replace('\n', ' ').trim().let {
-            if (it.length <= 80) it else it.take(80).trimEnd() + "â€¦"
+            if (it.length <= 80) it else it.take(80).trimEnd() + "…"
         }
 
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
