@@ -59,9 +59,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnHistory: Button
     private lateinit var btnPolish: Button
     private lateinit var btnPolishPreset: Button
+    private lateinit var btnPauseResume: Button
+    private lateinit var btnRetryUpload: Button
     private lateinit var btnCopyResult: Button
 
     private var isRecording = false
+    private var isPaused = false
     private var lastRawTranscription: String = ""
     private var lastDurationSeconds: Int? = null
     private var lastHistoryEntryId: String? = null
@@ -83,6 +86,9 @@ class MainActivity : AppCompatActivity() {
                         btnRecord.text = "Stop Recording"
                         setStatus("Recording...")
                         etTranscription.setText("")
+                        isPaused = false
+                        btnRetryUpload.visibility = View.GONE
+                        updatePauseButton()
                         btnPolish.isEnabled = false
                         lastRawTranscription = ""
                         lastDurationSeconds = null
@@ -114,8 +120,27 @@ class MainActivity : AppCompatActivity() {
                         chronometer.start()
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
+                    RecordingService.STATE_PAUSED -> {
+                        isPaused = true
+                        updatePauseButton()
+                        setStatus("Recording paused")
+                        // Freeze the display at the elapsed active time.
+                        chronometer.stop()
+                        val elapsed = intent.getIntExtra(RecordingService.EXTRA_DURATION, 0)
+                        chronometer.base = SystemClock.elapsedRealtime() - elapsed * 1000L
+                    }
+                    RecordingService.STATE_RESUMED -> {
+                        isPaused = false
+                        updatePauseButton()
+                        setStatus("Recording...")
+                        val elapsed = intent.getIntExtra(RecordingService.EXTRA_DURATION, 0)
+                        chronometer.base = SystemClock.elapsedRealtime() - elapsed * 1000L
+                        chronometer.start()
+                    }
                     RecordingService.STATE_LOADING -> {
                         isRecording = false
+                        isPaused = false
+                        updatePauseButton()
                         btnRecord.text = "Start Recording"
                         setStatus("Uploading and Transcribing...")
                         btnPolish.isEnabled = false
@@ -133,6 +158,7 @@ class MainActivity : AppCompatActivity() {
                         // creating a second one, and mark the hand-off as claimed.
                         lastHistoryEntryId = intent.getStringExtra(RecordingService.EXTRA_ENTRY_ID)
                         clearPendingResult()
+                        btnRetryUpload.visibility = View.GONE
 
                         val usage = intent.getIntExtra(RecordingService.EXTRA_USAGE, -1)
                         if (usage != -1) {
@@ -157,10 +183,13 @@ class MainActivity : AppCompatActivity() {
                     }
                     RecordingService.STATE_ERROR -> {
                         isRecording = false
+                        isPaused = false
+                        updatePauseButton()
                         btnRecord.text = "Start Recording"
                         showingResult = false
                         showRecordingUi()
                         setStatus(text ?: "An error occurred")
+                        refreshRetryButton()
                         btnPolish.isEnabled = false
                         lastRawTranscription = ""
                         lastDurationSeconds = null
@@ -197,6 +226,8 @@ class MainActivity : AppCompatActivity() {
         btnHistory = findViewById(R.id.btnHistory)
         btnPolish = findViewById(R.id.btnPolish)
         btnPolishPreset = findViewById(R.id.btnPolishPreset)
+        btnPauseResume = findViewById(R.id.btnPauseResume)
+        btnRetryUpload = findViewById(R.id.btnRetryUpload)
         btnCopyResult = findViewById(R.id.btnCopyResult)
 
         updatePresetButton()
@@ -207,6 +238,10 @@ class MainActivity : AppCompatActivity() {
 
         if (getApiKey().isNullOrEmpty()) {
             showApiKeyDialog()
+        } else {
+            // Only once the app is actually usable — stacking two dialogs on first launch
+            // would bury the API key prompt.
+            maybeAskBatteryOptimization()
         }
 
         btnSettings.setOnClickListener { showApiKeyDialog() }
@@ -237,6 +272,27 @@ class MainActivity : AppCompatActivity() {
         btnPolishPreset.setOnClickListener { showPresetChooserDialog() }
 
         btnToggleVariant.setOnClickListener { toggleResultVariant() }
+
+        btnPauseResume.setOnClickListener {
+            val action = if (isPaused) RecordingService.ACTION_RESUME else RecordingService.ACTION_PAUSE
+            startService(Intent(this, RecordingService::class.java).apply { this.action = action })
+        }
+
+        btnRetryUpload.setOnClickListener {
+            val intent = Intent(this, RecordingService::class.java).apply {
+                action = RecordingService.ACTION_RETRY_UPLOAD
+                putExtra(RecordingService.EXTRA_API_KEY, getApiKey())
+                putExtra(RecordingService.EXTRA_JARGON, getJargon())
+                putExtra(RecordingService.EXTRA_DEFER_CLIPBOARD, true)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            btnRetryUpload.visibility = View.GONE
+            setStatus("Retrying upload...")
+        }
 
         restoreInstanceState(savedInstanceState)
 
@@ -299,6 +355,7 @@ class MainActivity : AppCompatActivity() {
         }
         sharedPreferences.edit().putBoolean(RecordingService.PREF_UI_VISIBLE, true).apply()
         consumePendingResult()
+        refreshRetryButton()
     }
 
     override fun onStop() {
@@ -437,6 +494,66 @@ class MainActivity : AppCompatActivity() {
     private fun setStatus(text: String) {
         tvStatus.text = text
         tvStatus.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    private fun updatePauseButton() {
+        btnPauseResume.visibility = if (isRecording) View.VISIBLE else View.GONE
+        btnPauseResume.text = if (isPaused) "Resume" else "Pause"
+    }
+
+    /** Offers the retry only while a failed upload's audio is still on disk. */
+    private fun refreshRetryButton() {
+        val path = sharedPreferences.getString(RecordingService.PREF_FAILED_AUDIO_PATH, null)
+        val available = path != null && java.io.File(path).exists()
+        if (!available && path != null) {
+            sharedPreferences.edit()
+                .remove(RecordingService.PREF_FAILED_AUDIO_PATH)
+                .remove(RecordingService.PREF_FAILED_AUDIO_DURATION)
+                .apply()
+        }
+        btnRetryUpload.visibility = if (available && !isRecording) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Asked once per install. Aggressive OEM battery savers are the single most common reason
+     * background recording dies, and the README's manual workaround assumed the user would go
+     * looking for it.
+     */
+    private fun maybeAskBatteryOptimization() {
+        if (sharedPreferences.getBoolean(PREF_ASKED_BATTERY_OPT, false)) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+
+        val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            sharedPreferences.edit().putBoolean(PREF_ASKED_BATTERY_OPT, true).apply()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Keep recording reliable")
+            .setMessage(
+                "Android's battery saver can kill Stow while it records in the background — " +
+                    "the recording stops without warning when your screen is off or you switch apps.\n\n" +
+                    "Allowing Stow to run unrestricted prevents that. Stow only uses power while " +
+                    "you are actually recording."
+            )
+            .setPositiveButton("Allow") { _, _ ->
+                sharedPreferences.edit().putBoolean(PREF_ASKED_BATTERY_OPT, true).apply()
+                try {
+                    startActivity(
+                        Intent(
+                            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                    )
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Open Settings → Apps → Stow → Battery", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("Not now") { _, _ ->
+                sharedPreferences.edit().putBoolean(PREF_ASKED_BATTERY_OPT, true).apply()
+            }
+            .show()
     }
 
     private fun showRecordingUi() {
@@ -1536,6 +1653,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PREF_AUTO_POLISH = "auto_polish"
+        private const val PREF_ASKED_BATTERY_OPT = "asked_battery_opt"
 
         private const val STATE_SHOWING_RESULT = "showingResult"
         private const val STATE_SHOWS_POLISHED = "resultShowsPolished"

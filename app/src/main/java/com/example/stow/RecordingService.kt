@@ -38,6 +38,9 @@ class RecordingService : Service() {
     companion object {
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_PAUSE = "ACTION_PAUSE"
+        const val ACTION_RESUME = "ACTION_RESUME"
+        const val ACTION_RETRY_UPLOAD = "ACTION_RETRY_UPLOAD"
         const val EXTRA_API_KEY = "EXTRA_API_KEY"
         const val EXTRA_JARGON = "EXTRA_JARGON"
         /** When true, skip clipboard so the UI can polish first, then copy the final text. */
@@ -56,6 +59,15 @@ class RecordingService : Service() {
         const val PREF_PENDING_RESULT_ID = "pending_result_id"
         /** MainActivity keeps this current so the service knows whether to notify. */
         const val PREF_UI_VISIBLE = "ui_visible"
+        /** Set when an upload failed and the audio is still on disk, ready to retry. */
+        const val PREF_FAILED_AUDIO_PATH = "failed_audio_path"
+        const val PREF_FAILED_AUDIO_DURATION = "failed_audio_duration"
+
+        /** Groq's free tier rejects larger uploads; stay clear of the 25 MB ceiling. */
+        private const val MAX_UPLOAD_BYTES = 24L * 1024 * 1024
+        private const val AUDIO_FILE_PREFIX = "audio_"
+        private const val AUDIO_FILE_SUFFIX = ".m4a"
+        private const val RETRY_DELAY_MILLIS = 2000L
 
         private const val RECORDING_NOTIFICATION_ID = 1
         const val RESULT_NOTIFICATION_ID = 2
@@ -67,11 +79,18 @@ class RecordingService : Service() {
         const val STATE_SUCCESS = "ACTION_RECORDING_SUCCESS"
         const val STATE_ERROR = "ACTION_RECORDING_ERROR"
         const val STATE_STOPPED = "STATE_STOPPED"
+        const val STATE_PAUSED = "STATE_PAUSED"
+        const val STATE_RESUMED = "STATE_RESUMED"
     }
 
     private var apiKey: String = ""
     private var jargon: String = ""
     private var deferClipboard: Boolean = false
+
+    private var isPaused = false
+    /** Recording time excluding paused stretches, so usage and duration stay honest. */
+    private var accumulatedActiveMillis = 0L
+    private var segmentStartMillis = 0L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent != null) {
@@ -83,6 +102,14 @@ class RecordingService : Service() {
                     startRecording()
                 }
                 ACTION_STOP -> stopRecording()
+                ACTION_PAUSE -> pauseRecording()
+                ACTION_RESUME -> resumeRecording()
+                ACTION_RETRY_UPLOAD -> {
+                    apiKey = intent.getStringExtra(EXTRA_API_KEY) ?: ""
+                    jargon = intent.getStringExtra(EXTRA_JARGON) ?: ""
+                    deferClipboard = intent.getBooleanExtra(EXTRA_DEFER_CLIPBOARD, false)
+                    retryUpload()
+                }
             }
         }
         return START_NOT_STICKY
@@ -93,18 +120,8 @@ class RecordingService : Service() {
         
         createNotificationChannel()
         
-        val stopIntent = Intent(this, RecordingService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        
-        val notification: Notification = NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
-            .setContentTitle("Stow")
-            .setContentText("Recording in progress...")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .addAction(android.R.drawable.ic_media_pause, "Stop Recording", stopPendingIntent)
-            .build()
-            
+        val notification = buildRecordingNotification(paused = false)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(RECORDING_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         } else {
@@ -116,19 +133,32 @@ class RecordingService : Service() {
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .cancel(RESULT_NOTIFICATION_ID)
 
-        audioFile = File(externalCacheDir, "audio_record.m4a")
+        // Unique name so a failed upload's audio survives the next recording (see retryUpload).
+        audioFile = File(
+            externalCacheDir,
+            "$AUDIO_FILE_PREFIX${System.currentTimeMillis()}$AUDIO_FILE_SUFFIX"
+        )
 
         mediaRecorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            // Whisper resamples to 16 kHz mono anyway, so matching it costs no accuracy and
+            // cuts the upload to roughly 14 MB/hour — the difference between a note landing
+            // and a note timing out on a weak site connection.
+            setAudioChannels(1)
+            setAudioSamplingRate(16000)
+            setAudioEncodingBitRate(32000)
             setOutputFile(audioFile?.absolutePath)
 
             try {
                 prepare()
                 start()
                 isRecording = true
-                startTimeMillis = android.os.SystemClock.elapsedRealtime()
+                isPaused = false
+                accumulatedActiveMillis = 0L
+                segmentStartMillis = android.os.SystemClock.elapsedRealtime()
+                startTimeMillis = segmentStartMillis
                 broadcastState(STATE_RECORDING)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -136,6 +166,82 @@ class RecordingService : Service() {
                 stopSelf()
             }
         }
+    }
+
+    private fun buildRecordingNotification(paused: Boolean): Notification {
+        val stopPendingIntent = servicePendingIntent(ACTION_STOP, requestCode = 0)
+        val builder = NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
+            .setContentTitle("Stow")
+            .setContentText(if (paused) "Recording paused" else "Recording in progress...")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setOngoing(true)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            if (paused) {
+                builder.addAction(
+                    android.R.drawable.ic_media_play,
+                    "Resume",
+                    servicePendingIntent(ACTION_RESUME, requestCode = 2)
+                )
+            } else {
+                builder.addAction(
+                    android.R.drawable.ic_media_pause,
+                    "Pause",
+                    servicePendingIntent(ACTION_PAUSE, requestCode = 1)
+                )
+            }
+        }
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Recording", stopPendingIntent)
+        return builder.build()
+    }
+
+    private fun servicePendingIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, RecordingService::class.java).apply { this.action = action }
+        return PendingIntent.getService(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+    }
+
+    private fun pauseRecording() {
+        if (!isRecording || isPaused) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+        try {
+            mediaRecorder?.pause()
+            isPaused = true
+            accumulatedActiveMillis += android.os.SystemClock.elapsedRealtime() - segmentStartMillis
+            updateRecordingNotification(paused = true)
+            broadcastState(STATE_PAUSED, durationSeconds = activeSeconds())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun resumeRecording() {
+        if (!isRecording || !isPaused) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+        try {
+            mediaRecorder?.resume()
+            isPaused = false
+            segmentStartMillis = android.os.SystemClock.elapsedRealtime()
+            updateRecordingNotification(paused = false)
+            broadcastState(STATE_RESUMED, durationSeconds = activeSeconds())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun updateRecordingNotification(paused: Boolean) {
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(RECORDING_NOTIFICATION_ID, buildRecordingNotification(paused))
+    }
+
+    /** Elapsed recording time with paused stretches excluded. */
+    private fun activeSeconds(): Int {
+        val live = if (isPaused) 0L else android.os.SystemClock.elapsedRealtime() - segmentStartMillis
+        return ((accumulatedActiveMillis + live) / 1000).toInt()
     }
 
     private fun stopRecording() {
@@ -146,21 +252,15 @@ class RecordingService : Service() {
                 stop()
                 release()
             }
+            val durationSeconds = activeSeconds()
             mediaRecorder = null
             isRecording = false
-            
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val notification: Notification = NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
-                .setContentTitle("Stow")
-                .setContentText("Uploading and Transcribing...")
-                .setSmallIcon(android.R.drawable.ic_popup_sync)
-                .build()
-            notificationManager.notify(RECORDING_NOTIFICATION_ID, notification)
-            
-            broadcastState(STATE_LOADING)
+            isPaused = false
 
-            val durationMillis = android.os.SystemClock.elapsedRealtime() - startTimeMillis
-            val durationSeconds = (durationMillis / 1000).toInt()
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(RECORDING_NOTIFICATION_ID, buildUploadingNotification())
+
+            broadcastState(STATE_LOADING)
 
             audioFile?.let {
                 sendAudioToGroq(it, durationSeconds)
@@ -173,9 +273,92 @@ class RecordingService : Service() {
         }
     }
 
-    private fun sendAudioToGroq(file: File, durationSeconds: Int) {
+    private fun buildUploadingNotification(): Notification =
+        NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
+            .setContentTitle("Stow")
+            .setContentText("Uploading and Transcribing...")
+            .setSmallIcon(android.R.drawable.ic_popup_sync)
+            .setOngoing(true)
+            .build()
+
+    /** Remembers a failed upload so the audio can be re-sent instead of thrown away. */
+    private fun recordUploadFailure(file: File, durationSeconds: Int) {
+        if (!file.exists()) return
+        prefs().edit()
+            .putString(PREF_FAILED_AUDIO_PATH, file.absolutePath)
+            .putInt(PREF_FAILED_AUDIO_DURATION, durationSeconds)
+            .apply()
+    }
+
+    private fun clearUploadFailure() {
+        prefs().edit()
+            .remove(PREF_FAILED_AUDIO_PATH)
+            .remove(PREF_FAILED_AUDIO_DURATION)
+            .apply()
+    }
+
+    /** Drops stale recordings from the cache, keeping any that a retry still needs. */
+    private fun cleanupAudioCache(keepPath: String?) {
+        try {
+            externalCacheDir?.listFiles()?.forEach { candidate ->
+                if (candidate.name.startsWith(AUDIO_FILE_PREFIX) &&
+                    candidate.name.endsWith(AUDIO_FILE_SUFFIX) &&
+                    candidate.absolutePath != keepPath
+                ) {
+                    candidate.delete()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun retryUpload() {
+        val path = prefs().getString(PREF_FAILED_AUDIO_PATH, null)
+        val duration = prefs().getInt(PREF_FAILED_AUDIO_DURATION, 0)
+        val file = path?.let { File(it) }
+        if (file == null || !file.exists()) {
+            clearUploadFailure()
+            broadcastState(STATE_ERROR, "Saved audio is no longer available")
+            stopSelf()
+            return
+        }
+
+        createNotificationChannel()
+        // dataSync, not microphone: nothing is being recorded on this path.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                RECORDING_NOTIFICATION_ID,
+                buildUploadingNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(RECORDING_NOTIFICATION_ID, buildUploadingNotification())
+        }
+        broadcastState(STATE_LOADING)
+        sendAudioToGroq(file, duration)
+    }
+
+    private fun sendAudioToGroq(file: File, durationSeconds: Int, attempt: Int = 0) {
         if (!isNetworkAvailable()) {
+            recordUploadFailure(file, durationSeconds)
             broadcastState(STATE_ERROR, "Error: No active internet connection found.")
+            stopForeground(true)
+            stopSelf()
+            return
+        }
+
+        if (file.length() > MAX_UPLOAD_BYTES) {
+            val megabytes = file.length().toDouble() / (1024 * 1024)
+            broadcastState(
+                STATE_ERROR,
+                String.format(
+                    Locale.getDefault(),
+                    "Recording too large to upload (%.1f MB — limit ~25 MB). The audio was kept; try splitting long recordings.",
+                    megabytes
+                )
+            )
+            recordUploadFailure(file, durationSeconds)
             stopForeground(true)
             stopSelf()
             return
@@ -207,6 +390,16 @@ class RecordingService : Service() {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
+                // One automatic retry: field connectivity drops out for a moment far more
+                // often than it is genuinely unavailable. Do not stopSelf here — the service
+                // has to stay alive to make the second attempt.
+                if (attempt == 0) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        sendAudioToGroq(file, durationSeconds, attempt = 1)
+                    }, RETRY_DELAY_MILLIS)
+                    return
+                }
+                recordUploadFailure(file, durationSeconds)
                 broadcastState(STATE_ERROR, "Error: ${e.message}")
                 stopForeground(true)
                 stopSelf()
@@ -219,9 +412,8 @@ class RecordingService : Service() {
                         val jsonObject = JSONObject(responseBody)
                         val text = jsonObject.getString("text")
                         
-                        if (file.exists()) {
-                            file.delete()
-                        }
+                        clearUploadFailure()
+                        cleanupAudioCache(keepPath = null)
 
                         // Save history here, not in the UI: the activity may already be stopped
                         // (screen off, another app) and would never receive the broadcast, which
@@ -251,9 +443,12 @@ class RecordingService : Service() {
                             showResultReadyNotification(text)
                         }
                     } catch (e: Exception) {
+                        recordUploadFailure(file, durationSeconds)
                         broadcastState(STATE_ERROR, "Error parsing response")
                     }
                 } else {
+                    // Keep the audio: a 429 or a transient 5xx is worth retrying by hand.
+                    recordUploadFailure(file, durationSeconds)
                     broadcastState(STATE_ERROR, "API Error: ${response.code}\n$responseBody")
                 }
                 stopForeground(true)
