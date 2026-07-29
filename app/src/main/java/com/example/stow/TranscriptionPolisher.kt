@@ -29,11 +29,15 @@ class TranscriptionPolisher(
 
     /**
      * @param systemPrompt the selected preset's prompt, already jargon-substituted.
+     * @param enforceLengthGuard reject output that is wildly shorter or longer than the input.
+     *   Only meaningful for light-cleanup presets — a preset that restructures the text
+     *   (Task capture, say) legitimately changes length and must not set this.
      */
     fun polish(
         rawText: String,
         apiKey: String,
         systemPrompt: String,
+        enforceLengthGuard: Boolean = false,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -50,9 +54,21 @@ class TranscriptionPolisher(
             return
         }
 
+        val userMessage = buildString {
+            append("Clean the transcription between the markers.\n\n")
+            append(PolishPresets.TRANSCRIPT_START).append('\n')
+            append(rawText).append('\n')
+            append(PolishPresets.TRANSCRIPT_END)
+        }
+
+        // Roughly two tokens of headroom per token of input — enough for any preset that
+        // restructures, while still capping a runaway generation on the free tier.
+        val maxTokens = maxOf(256, (rawText.length / 3) * 2)
+
         val body = JSONObject().apply {
             put("model", MODEL)
             put("temperature", 0.2)
+            put("max_tokens", maxTokens)
             put(
                 "messages",
                 JSONArray().apply {
@@ -62,7 +78,7 @@ class TranscriptionPolisher(
                     })
                     put(JSONObject().apply {
                         put("role", "user")
-                        put("content", rawText)
+                        put("content", userMessage)
                     })
                 }
             )
@@ -99,6 +115,15 @@ class TranscriptionPolisher(
                         onError("Polish returned empty text")
                         return
                     }
+                    // "Light cleanup only" is otherwise enforced purely by a prompt an 8B
+                    // model can drift from; this makes it a property of the app.
+                    if (enforceLengthGuard && rawText.length > LENGTH_GUARD_MIN_CHARS) {
+                        val ratio = polished.length.toDouble() / rawText.length
+                        if (ratio < LENGTH_GUARD_MIN_RATIO || ratio > LENGTH_GUARD_MAX_RATIO) {
+                            onError("Polish changed the text too much — keeping raw")
+                            return
+                        }
+                    }
                     onSuccess(polished)
                 } catch (e: Exception) {
                     onError("Error parsing polish response")
@@ -109,6 +134,11 @@ class TranscriptionPolisher(
 
     companion object {
         const val MODEL = "llama-3.1-8b-instant"
+
+        /** Below this length, normal filler removal swings the ratio too much to judge. */
+        private const val LENGTH_GUARD_MIN_CHARS = 40
+        private const val LENGTH_GUARD_MIN_RATIO = 0.4
+        private const val LENGTH_GUARD_MAX_RATIO = 1.5
         private const val CHAT_COMPLETIONS_URL =
             "https://api.groq.com/openai/v1/chat/completions"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

@@ -43,7 +43,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var btnRecord: Button
     private lateinit var etTranscription: EditText
+    private lateinit var tvStatus: TextView
     private lateinit var tvResultLabel: TextView
+    private lateinit var resultHeaderRow: LinearLayout
+    private lateinit var btnToggleVariant: Button
     private lateinit var resultActionRow: LinearLayout
 
     private lateinit var btnSettings: ImageButton
@@ -78,7 +81,8 @@ class MainActivity : AppCompatActivity() {
                         isRecording = true
                         showingResult = false
                         btnRecord.text = "Stop Recording"
-                        setStatusText("Recording...")
+                        setStatus("Recording...")
+                        etTranscription.setText("")
                         btnPolish.isEnabled = false
                         lastRawTranscription = ""
                         lastDurationSeconds = null
@@ -113,7 +117,7 @@ class MainActivity : AppCompatActivity() {
                     RecordingService.STATE_LOADING -> {
                         isRecording = false
                         btnRecord.text = "Start Recording"
-                        setStatusText("Uploading and Transcribing...")
+                        setStatus("Uploading and Transcribing...")
                         btnPolish.isEnabled = false
                         chronometer.stop()
                         chronometer.base = SystemClock.elapsedRealtime()
@@ -136,7 +140,6 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         if (isAutoPolishEnabled() && transcription.isNotBlank()) {
-                            setStatusText("Polishing...")
                             startPolish(transcription, autoTriggered = true)
                         } else {
                             showEditableResult(
@@ -157,7 +160,7 @@ class MainActivity : AppCompatActivity() {
                         btnRecord.text = "Start Recording"
                         showingResult = false
                         showRecordingUi()
-                        setStatusText(text ?: "An error occurred")
+                        setStatus(text ?: "An error occurred")
                         btnPolish.isEnabled = false
                         lastRawTranscription = ""
                         lastDurationSeconds = null
@@ -179,7 +182,10 @@ class MainActivity : AppCompatActivity() {
 
         btnRecord = findViewById(R.id.btnRecord)
         etTranscription = findViewById(R.id.etTranscription)
+        tvStatus = findViewById(R.id.tvStatus)
         tvResultLabel = findViewById(R.id.tvResultLabel)
+        resultHeaderRow = findViewById(R.id.resultHeaderRow)
+        btnToggleVariant = findViewById(R.id.btnToggleVariant)
         resultActionRow = findViewById(R.id.resultActionRow)
         btnSettings = findViewById(R.id.btnSettings)
         btnInfo = findViewById(R.id.btnInfo)
@@ -197,7 +203,7 @@ class MainActivity : AppCompatActivity() {
         tvVersion.text = "v${BuildConfig.VERSION_NAME}"
         loadInitialUsage()
         showRecordingUi()
-        setStatusText("Transcription will appear here...")
+        setStatus("")
 
         if (getApiKey().isNullOrEmpty()) {
             showApiKeyDialog()
@@ -230,6 +236,10 @@ class MainActivity : AppCompatActivity() {
 
         btnPolishPreset.setOnClickListener { showPresetChooserDialog() }
 
+        btnToggleVariant.setOnClickListener { toggleResultVariant() }
+
+        restoreInstanceState(savedInstanceState)
+
         btnRecord.setOnClickListener {
             if (isRecording) {
                 stopRecording()
@@ -243,6 +253,40 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // The EditText's own text is restored by the framework (it has an id); what would
+        // otherwise be lost on rotation is which mode the screen is in.
+        outState.putBoolean(STATE_SHOWING_RESULT, showingResult)
+        outState.putBoolean(STATE_SHOWS_POLISHED, resultShowsPolished)
+        outState.putString(STATE_RAW_TRANSCRIPTION, lastRawTranscription)
+        outState.putString(STATE_ENTRY_ID, lastHistoryEntryId)
+        outState.putString(STATE_STATUS, tvStatus.text?.toString().orEmpty())
+        lastDurationSeconds?.let { outState.putInt(STATE_DURATION, it) }
+    }
+
+    /** Re-enters the result screen after a rotation without re-copying or re-saving. */
+    private fun restoreInstanceState(savedInstanceState: Bundle?) {
+        val state = savedInstanceState ?: return
+
+        lastRawTranscription = state.getString(STATE_RAW_TRANSCRIPTION).orEmpty()
+        lastHistoryEntryId = state.getString(STATE_ENTRY_ID)
+        lastDurationSeconds = if (state.containsKey(STATE_DURATION)) {
+            state.getInt(STATE_DURATION)
+        } else {
+            null
+        }
+        resultShowsPolished = state.getBoolean(STATE_SHOWS_POLISHED, false)
+
+        if (state.getBoolean(STATE_SHOWING_RESULT, false)) {
+            showResultUi()
+            btnPolish.isEnabled = lastRawTranscription.isNotBlank()
+            updateVariantToggle()
+        }
+        // After showResultUi, which clears the status line.
+        setStatus(state.getString(STATE_STATUS).orEmpty())
     }
 
     override fun onStart() {
@@ -381,26 +425,23 @@ class MainActivity : AppCompatActivity() {
     private fun isAutoPolishEnabled(): Boolean =
         sharedPreferences.getBoolean(PREF_AUTO_POLISH, false)
 
-    private fun isUsableTranscription(text: String): Boolean {
-        if (text.isBlank()) return false
-        return text != "Transcription will appear here..." &&
-            text != "Recording..." &&
-            text != "Uploading and Transcribing..." &&
-            !text.startsWith(POLISHING_STATUS_PREFIX) &&
-            text != "An error occurred"
-    }
+    /**
+     * Status messages used to be written into the transcript field, which forced this to
+     * blacklist their exact wording. They now live in their own view, so the field only ever
+     * holds transcript text and a blank check is enough.
+     */
+    private fun isUsableTranscription(text: String): Boolean = text.isNotBlank()
 
     private fun currentEditableText(): String = etTranscription.text?.toString().orEmpty().trim()
 
-    private fun setStatusText(text: String) {
-        etTranscription.setText(text)
-        etTranscription.setSelection(0)
-        etTranscription.scrollTo(0, 0)
+    private fun setStatus(text: String) {
+        tvStatus.text = text
+        tvStatus.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
     }
 
     private fun showRecordingUi() {
         showingResult = false
-        tvResultLabel.visibility = View.GONE
+        resultHeaderRow.visibility = View.GONE
         resultActionRow.visibility = View.GONE
         btnRecord.visibility = View.VISIBLE
         if (!isRecording) {
@@ -419,8 +460,9 @@ class MainActivity : AppCompatActivity() {
         } else {
             "Result — raw (editable)"
         }
-        tvResultLabel.visibility = View.VISIBLE
+        resultHeaderRow.visibility = View.VISIBLE
         resultActionRow.visibility = View.VISIBLE
+        setStatus("")
         // Keep Start at the same position as the main recording screen so the next take is one tap.
         btnRecord.visibility = View.VISIBLE
         btnRecord.text = "Start Recording"
@@ -482,6 +524,51 @@ class MainActivity : AppCompatActivity() {
         if (autoCopy && displayText.isNotBlank()) {
             copyToClipboard(displayText)
         }
+
+        // After history is settled — the toggle depends on the entry having both versions.
+        updateVariantToggle()
+    }
+
+    /**
+     * Shows the toggle only when the current note actually has both versions, and labels it
+     * with the variant it would switch *to*.
+     */
+    private fun updateVariantToggle() {
+        val entry = lastHistoryEntryId?.let { TranscriptionHistory.getById(this, it) }
+        val hasBoth = entry != null &&
+            entry.rawText.isNotBlank() &&
+            !entry.polishedText.isNullOrBlank() &&
+            entry.polishedText != entry.rawText
+        btnToggleVariant.visibility = if (showingResult && hasBoth) View.VISIBLE else View.GONE
+        btnToggleVariant.text = if (resultShowsPolished) "Show raw" else "Show polished"
+    }
+
+    /** Swaps the result field between raw and polished, keeping edits to each side. */
+    private fun toggleResultVariant() {
+        val id = lastHistoryEntryId ?: return
+
+        // Save whatever the user typed into the version they are leaving.
+        val current = currentEditableText()
+        if (current.isNotBlank()) {
+            persistEditedResult(current)
+        }
+
+        val entry = TranscriptionHistory.getById(this, id) ?: return
+        val showPolished = !resultShowsPolished
+        val target = if (showPolished) entry.polishedText.orEmpty() else entry.rawText
+        if (target.isBlank()) return
+
+        resultShowsPolished = showPolished
+        showResultUi()
+        etTranscription.setText(target)
+        etTranscription.setSelection(target.length)
+        copyToClipboard(target)
+        updateVariantToggle()
+        Toast.makeText(
+            this,
+            if (showPolished) "Polished copied" else "Raw copied",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun persistEditedResult(editedText: String) {
@@ -509,10 +596,11 @@ class MainActivity : AppCompatActivity() {
         resultShowsPolished = false
         btnPolish.isEnabled = false
         showingResult = false
-        tvResultLabel.visibility = View.GONE
+        resultHeaderRow.visibility = View.GONE
         resultActionRow.visibility = View.GONE
         setTranscriptionEditable(false)
-        setStatusText("Transcription will appear here...")
+        etTranscription.setText("")
+        setStatus("")
     }
 
     private fun startPolish(rawText: String, autoTriggered: Boolean) {
@@ -535,20 +623,32 @@ class MainActivity : AppCompatActivity() {
 
         isPolishing = true
         btnPolish.isEnabled = false
-        val previousText = etTranscription.text?.toString().orEmpty()
-        if (!showingResult) {
-            setStatusText("Polishing with ${preset.name}...")
-        }
+        setStatus("Polishing with ${preset.name}...")
 
         polisher.polish(
             rawText = rawText,
             apiKey = apiKey,
             systemPrompt = systemPrompt,
+            // Only Clean prose promises to stay close to the original length. Task capture
+            // restructures into headings and checkboxes and legitimately grows.
+            enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
             onSuccess = { polished ->
                 runOnUiThread {
                     isPolishing = false
                     btnPolish.isEnabled = true
-                    showPolishResultDialog(rawText, polished, preset.name)
+                    if (autoTriggered) {
+                        // Auto-polish means "always polished" — confirming it on every note
+                        // is the friction the setting exists to remove. The result screen's
+                        // Show raw toggle covers the times it gets it wrong.
+                        openResultAfterPolish(
+                            rawText,
+                            displayText = polished,
+                            polishedForHistory = polished,
+                            chosePolished = true
+                        )
+                    } else {
+                        showPolishResultDialog(rawText, polished, preset.name)
+                    }
                 }
             },
             onError = { error ->
@@ -568,12 +668,9 @@ class MainActivity : AppCompatActivity() {
                             Toast.LENGTH_LONG
                         ).show()
                     } else {
-                        if (!showingResult) {
-                            setStatusText(
-                                if (previousText.startsWith(POLISHING_STATUS_PREFIX)) rawText
-                                else previousText.ifBlank { rawText }
-                            )
-                        }
+                        // The transcript field was never overwritten by status text, so
+                        // there is nothing to restore — just clear the spinner message.
+                        setStatus("")
                         Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
                     }
                 }
@@ -673,6 +770,7 @@ class MainActivity : AppCompatActivity() {
                 if (displayText.isNotBlank()) {
                     copyToClipboard(displayText)
                 }
+                updateVariantToggle()
                 Toast.makeText(
                     this,
                     if (chosePolished) "Polished text copied — edit if needed"
@@ -971,6 +1069,7 @@ class MainActivity : AppCompatActivity() {
             rawText = entry.rawText,
             apiKey = apiKey,
             systemPrompt = PolishPresets.buildSystemPrompt(preset, getJargon().orEmpty()),
+            enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
             onSuccess = { polished ->
                 runOnUiThread {
                     isPolishing = false
@@ -1185,7 +1284,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(autoPolishCheckbox)
 
         val autoPolishHint = TextView(this).apply {
-            text = "When enabled, Stow runs a second free-tier-friendly Groq pass using the selected polish preset. Choosing raw or polished copies the text immediately and opens the editable result screen. Disable this if you prefer the raw transcript only."
+            text = "When enabled, Stow runs a second free-tier-friendly Groq pass using the selected polish preset and goes straight to the editable result with the polished text already copied — no confirmation step. Use Show raw on the result screen if a polish goes wrong. Disable this to go straight to the raw transcript instead."
             textSize = 12f
             setPadding(8, 8, 8, 0)
         }
@@ -1437,7 +1536,12 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PREF_AUTO_POLISH = "auto_polish"
-        /** Status messages during polish start with this; used to detect placeholder text. */
-        private const val POLISHING_STATUS_PREFIX = "Polishing"
+
+        private const val STATE_SHOWING_RESULT = "showingResult"
+        private const val STATE_SHOWS_POLISHED = "resultShowsPolished"
+        private const val STATE_RAW_TRANSCRIPTION = "lastRawTranscription"
+        private const val STATE_DURATION = "lastDurationSeconds"
+        private const val STATE_ENTRY_ID = "lastHistoryEntryId"
+        private const val STATE_STATUS = "statusText"
     }
 }
