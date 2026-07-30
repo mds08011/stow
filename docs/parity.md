@@ -50,6 +50,7 @@ Also expected to stay aligned, but **not** yet machine-checked:
 | Recording survives a crash | ✅ v2.7 | ✅ IndexedDB | **Shared** — ported from Web |
 | Rate-limit countdown | ✅ v2.7 | ✅ | **Shared** — ported from Web |
 | Route/mic reporting | ✅ v2.6 | ❌ | **Android only** — browsers do not expose this |
+| Bluetooth headset mic | ❌ | ❌ | **Declined on Android**, impossible on web — both record from the device mic |
 | Transcription quality warnings | ✅ v2.6 | ❌ | **Portable** — Web would need `verbose_json` |
 | Retained audio + re-transcribe | ✅ v2.6 | ❌ | **Portable** |
 | Edit result in place | ✅ | ❌ | **Not ported** |

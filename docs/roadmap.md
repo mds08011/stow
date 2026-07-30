@@ -14,31 +14,39 @@ These are the constraints the app is built around. A change that conflicts with 
 
 ## Next steps — read this first if picking the project back up
 
-### 1. Decide whether A.4 is needed (blocked on one test, not on code)
+### 1. A.4 (Bluetooth routing) — resolved, not building it
 
-The July 2026 investigation found the app has **never** used a Bluetooth headset microphone — `AudioSource.MIC` with no SCO routing always records from the phone. v2.6 made that visible but did not change it. A.4 would add real routing control.
+**Settled on 2026-07-30.** The gating test was run on v2.7 and came back clean:
 
-**Do not build A.4 until this test has been run**, because it may not be worth building:
+> Recorded a normal note with the phone at arm's reach. The indicator read **`Mic: Phone mic · 16 kHz`** and the transcription was good.
 
-> Record a normal note with the phone at arm's reach, not in a pocket. Check the mic line on the main screen and in history detail.
->
-> - If transcription quality is now fine, the July failure was **microphone distance**, not routing. A.4 becomes a convenience rather than a fix, and may be worth skipping entirely — Bluetooth SCO is narrowband 8–16 kHz and frequently transcribes *worse* than a phone mic held properly.
-> - If quality is still poor with the phone close, then the audio path itself is suspect and A.4 moves back up.
+That confirms the investigation's central finding on hardware — the app was recording from the phone the whole time while the old indicator claimed Bluetooth — and it resolves the cause. **The July failure was microphone distance, not routing.** Nothing about the audio path needs changing.
 
-If it does go ahead: [audio-implementation-prompts.md](audio-implementation-prompts.md) § A.4 is written and ready. It defaults to the phone mic, adds an explicit *Prefer Bluetooth mic / Always use phone mic* setting, and requires device testing that CI cannot do.
+A.4 is therefore **declined unless a concrete hands-free need appears**, e.g. "I want to dictate while driving without touching the phone." Reasons, in order of weight:
 
-### 2. Device testing owed from v2.5 and v2.6
+1. **SCO audio is likely worse, not better.** A headset mic runs over HFP — a telephony path, 8 kHz narrowband or 16 kHz wideband depending on what the phone and buds negotiate, and heavily processed with noise suppression and AGC tuned for call intelligibility rather than transcription fidelity. The phone mic already measures 16 kHz and transcribes well. This is a plausible downgrade.
+2. **It reintroduces the exact bug just escaped.** A.4's most likely failure is SCO not connecting and the recorder silently falling back to the internal mic — July's bug, with more moving parts.
+3. **It changes the capture path.** Everything since v2.5 has been additive or diagnostic. This is the one part of the app whose failure cannot be seen without listening.
+4. **`MODE_IN_COMMUNICATION` has device-wide side effects** — ducking other audio, altering volume behaviour, and leaving the phone in call-audio mode if any code path misses the release.
+5. **Another runtime permission** (`BLUETOOTH_CONNECT` on Android 12+) and its denial path.
 
-None of this is verifiable in CI, and none of it has been confirmed on hardware:
+**If it is ever revisited:** [audio-implementation-prompts.md](audio-implementation-prompts.md) § A.4 is written and ready. It defaults to the phone mic behind an explicit setting, so it is opt-in and reversible. One useful property — the experiment is self-measuring: A.1 already reports route and sample rate per note, and A.3 can re-transcribe the same audio, so the same content can be A/B'd both ways and judged on evidence.
 
-| What | Why it matters |
-|---|---|
-| Background the app during upload → notification → reopen | The A-1 data-loss fix; the highest-consequence unverified change |
-| Exactly one history entry per recording | A duplicate would be quiet and easy to miss |
-| Pause 30 s mid-recording → stored duration excludes it | Feeds the daily free-tier counter |
-| Airplane-mode → **Retry last upload** | Recovers a note instead of losing it |
-| Quick Settings tile start/stop | Never exercised on a device |
-| Launcher icon against other home-screen icons | Geometry is correct; visual weight is a judgement call |
+### 2. Device testing owed from v2.5, v2.6 and v2.7
+
+None of this is verifiable in CI. A general "record, transcribe, read the result" pass was done on v2.7 on 2026-07-30 and looked good, which covers the happy path; the items below need specific circumstances that ordinary use will not produce.
+
+| What | Why it matters | State |
+|---|---|---|
+| Record → transcribe → result, phone at arm's reach | The happy path, and the mic indicator | ✅ 2026-07-30, v2.7 |
+| Background the app during upload → notification → reopen | The A-1 data-loss fix; the highest-consequence unverified change | ⬜ |
+| Exactly one history entry per recording | A duplicate would be quiet and easy to miss | ⬜ |
+| Pause 30 s mid-recording → stored duration excludes it | Feeds the daily free-tier counter | ⬜ |
+| Airplane-mode → **Retry last upload** | Recovers a note instead of losing it | ⬜ |
+| Kill Stow mid-upload → relaunch offers the recording back | v2.7 crash recovery | ⬜ |
+| A real 429 → Retry counts down and stays disabled | v2.7 rate-limit handling | ⬜ |
+| Quick Settings tile start/stop | Never exercised on a device | ⬜ |
+| Launcher icon against other home-screen icons | Geometry is correct; visual weight is a judgement call | ⬜ |
 
 ### 3. Tune the quality thresholds against real recordings
 
@@ -50,7 +58,6 @@ Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for t
 
 | Item | Notes |
 |---|---|
-| **A.4 — Bluetooth mic routing** | Gated on the test above. Prompt is written and ready |
 | Screenshots in the README | Needs a physical device; scaffold is in `screenshots/` |
 | Legacy launcher icon below API 26 | Either add PNG fallbacks or raise `minSdk` to 26 |
 | Dated result-field background | `@android:drawable/edit_text` is a Holo 9-patch; renders poorly in dark mode |
@@ -75,6 +82,7 @@ Each of these has been considered and turned down. Reopening one means arguing a
 | **Cloud sync / accounts / multi-device history** | Requires a backend and an account system. **Export all → share sheet** already covers cross-device access for free. |
 | **Paid Groq tier or alternate paid providers** | Breaks principle 2 outright. |
 | **Play Store distribution** | Sideloading from GitHub Releases is the intended path. Play policy would force changes to the battery-optimisation prompt and the in-app updater. |
+| **Bluetooth headset mic routing (A.4)** | Declined 2026-07-30 after the phone mic tested well at 16 kHz. HFP audio is telephony-processed and likely transcribes worse, and the most probable bug is a silent fallback to the internal mic — July's failure again. Reopen only if hands-free capture becomes a real need; see §1 above. |
 
 ## Release gates
 

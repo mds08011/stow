@@ -9,15 +9,15 @@ Companion to [audio-investigation-2026-07.md](audio-investigation-2026-07.md). E
 | 1 | A.1 | F1 + D1 — truthful indicator, record the real route | small | **Shipped in v2.6** (`b77788e`) |
 | 2 | A.2 | F3 + D3 — verbose_json, confidence signals, stored responses | medium | **Shipped in v2.6** (`85ea6ae`) |
 | 3 | A.3 | D2 + D4 — keep raw audio, re-transcribe with a chosen model | medium | **Shipped in v2.6** (`9c05d52`) |
-| 4 | A.4 | F2 + F4 — real Bluetooth routing with a user setting | larger | **Not started — gated, see below** |
+| 4 | A.4 | F2 + F4 — real Bluetooth routing with a user setting | larger | **Declined 2026-07-30 — see below** |
 
-> ### A.4 is deliberately on hold
+> ### A.4 was declined, and the prompt is kept for reference only
 >
-> A.1–A.3 are diagnostics; A.4 is the only one that changes recording behaviour. Before building it, run the confirming test in [roadmap.md § Next steps](roadmap.md): record with the phone at arm's reach and see whether quality is acceptable.
+> The gating test was run on v2.7 on 2026-07-30: with the phone at arm's reach the indicator read `Mic: Phone mic · 16 kHz` and the transcription was good. The July failure was **microphone distance**, not routing, so there is no defect for A.4 to fix.
 >
-> If it is, the July failure was microphone distance and A.4 is a convenience — possibly not worth it, since Bluetooth SCO is narrowband and often transcribes worse than a properly-held phone mic. The prompt below is written and ready either way.
+> It was declined rather than deferred because the downside is real, not merely cost: HFP headset audio is telephony-processed and would plausibly transcribe *worse*, and its most likely bug is SCO failing to connect with a silent fallback to the internal mic — July's failure again, with more moving parts. Full reasoning in [roadmap.md § 1](roadmap.md).
 >
-> **What A.1–A.3 already give you** when a bad transcription next appears: which microphone was used, whether the model itself flagged the decode as unreliable, the audio file to listen to or share, and a one-tap A/B against `whisper-large-v3`. That is the full diagnostic set — enough to decide whether A.4 addresses a real cause.
+> **Reopen only if hands-free capture becomes a real need** — dictating while driving without touching the phone. The prompt below still applies: it defaults to the phone mic behind an explicit setting, so it stays opt-in and reversible. And the experiment would be self-measuring, since A.1 reports the route and sample rate per note and A.3 can re-transcribe the same audio both ways.
 
 Conventions for every prompt:
 - Stow is a single-activity Kotlin app: plain `SharedPreferences`, hand-built JSON, no architecture frameworks. Match that style; add no new dependencies unless the prompt says so.

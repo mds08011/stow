@@ -107,9 +107,13 @@ The repeated phantom phrase is otherwise well explained: Whisper emits high-prio
 | F1 / D1 — truthful indicator, route recorded per note | Shipped, v2.6 |
 | F3 / D3 — `verbose_json`, quality warnings, stored responses | Shipped, v2.6 |
 | D2 / D4 — retained audio, share, re-transcribe with model choice | Shipped, v2.6 |
-| F2 / F4 — actual Bluetooth routing, route-change detection | **Not started**, gated on the confirming test below |
+| F2 / F4 — actual Bluetooth routing, route-change detection | **Declined** — see below |
 
-Cause 1 (recording from the internal mic while believing it was the headset) is now **visible** but not **fixed** — v2.6 tells you which microphone was used; it does not let you change it. Causes 2 and 3 are addressed by the explicit `temperature`, `language` and prompt changes in v2.5 plus the warnings in v2.6.
+Causes 2 and 3 are addressed by the explicit `temperature`, `language` and prompt changes in v2.5 plus the warnings in v2.6.
+
+**Cause 1 is resolved without changing the audio path.** The confirming test was run on v2.7 on 2026-07-30: a normal note with the phone at arm's reach reported `Mic: Phone mic · 16 kHz` and transcribed well. That confirms the finding on hardware — the app was recording from the phone throughout while the old indicator claimed Bluetooth — and identifies the real cause as **microphone distance**, not routing.
+
+Bluetooth routing (A.4) is therefore declined. HFP audio is telephony-processed and would plausibly transcribe worse than the phone mic already does, and its most likely bug is a silent fallback to the internal mic — this same failure, with more moving parts. Full reasoning in [roadmap.md § 1](roadmap.md).
 
 ## What v2.5 already changed
 
