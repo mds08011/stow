@@ -15,6 +15,10 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **Upload Retry:** A dropped connection retries once automatically. If it still fails, the audio is kept and a **Retry last upload** button appears on the main screen — a lost note becomes one tap instead of a re-dictation.
 * **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
+* **Honest Microphone Indicator:** The main screen reports the microphone the recorder is **actually** using, read back from the recorder after it starts — e.g. *Mic: Phone mic · 16 kHz*. Every note stores its microphone and sample rate, visible in history detail and included in exports.
+
+  > **Stow currently records from the phone's microphone.** It does not yet route audio to a Bluetooth headset mic, even when one is connected — a connected headset is used for playback only. Earlier versions displayed "Bluetooth Mic" whenever a headset was merely paired, which was misleading; see [docs/audio-investigation-2026-07.md](docs/audio-investigation-2026-07.md). For best results, keep the phone within arm's reach and out of a pocket while dictating.
+
 * **Quick Settings Tile:** Add Stow to your quick settings and start or stop a recording straight from the notification shade — no app launch, works with gloves on. Add it via the pencil/edit button in your quick settings panel.
 * **Editable Result Screen:** After you choose raw or polished (or when transcription finishes without polish), Stow **immediately copies** the selected text to the clipboard and opens an editable multi-line result field so you can fix typos if needed. The field is labelled **Result — raw (editable)** or **Result — polished (editable)** so you always know which version you are looking at. The bottom action is **Copy** only (refresh the clipboard after edits). A **Start** button at the top (same style and position as the main recording screen) begins a brand-new recording and clears the current editable text.
 * **Optional Post-Transcription Polish:** One-tap **Polish** button or optional auto-polish in Settings; choose **Use Raw** or **Use Polished** to copy that text and open the editable result screen. Uses a free-tier-friendly Groq chat model and applies Jargon Dictionary terms for project names and technical vocabulary. See [docs/polishing-prompt.md](docs/polishing-prompt.md) for the prompt design and message structure.
@@ -139,6 +143,14 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 
 ### Permissions and notifications
 * **POST_NOTIFICATIONS** is required for the recording notification, the pause/resume controls, and the "Transcription ready" hand-off. Denying it on Android 13+ blocks recording entirely.
+
+### Transcription is garbled, repetitive, or contains phrases you never said
+This is Whisper hallucinating on low-quality audio, and the usual cause is microphone distance.
+
+* **Check the mic line** on the main screen or in the note's history detail. If it says *Phone mic*, the audio came from the handset — a connected Bluetooth headset is **not** used for recording.
+* Keep the phone out of a pocket and within arm's reach. A phone recording from a jacket pocket in a moving car produces exactly this failure.
+* Repetition ("and then add that in, and then add that in"), fluent-but-wrong words, and phrases from nowhere are all signatures of degraded input rather than a bug in the transcription request.
+* Add project vocabulary to the Jargon Dictionary — it will not rescue bad audio, but it helps borderline recordings.
 
 ### Jargon dictionary not improving accuracy enough
 * Add terms as a **comma-separated** list (e.g. `MGD, influent, clarifier, RAS, headworks, DI main, invert, SCADA, P2-141`).

@@ -39,6 +39,7 @@ stateDiagram-v2
 | Transition | Owner | Notes |
 |---|---|---|
 | Start / stop / pause / resume | `RecordingService` | Driven by `ACTION_*` intents from the activity, the notification, or the tile |
+| Resolving the microphone route | `RecordingService.resolveRoutedDevice` | `MediaRecorder.getRoutedDevice()` after `start()`, retried once after 150 ms; sent as `STATE_ROUTE` so `STATE_RECORDING` stays instant |
 | Recording → Uploading | `RecordingService.stopRecording` | Computes duration from active (non-paused) time only |
 | Upload + retry | `RecordingService.sendAudioToGroq` | One automatic retry on `IOException` before giving up |
 | **Saving history** | `RecordingService` | Written the moment the transcription arrives — see below |
@@ -53,7 +54,9 @@ A service-side clipboard write is *not* a substitute — Android 10+ blocks clip
 
 **2. Failed uploads keep their audio.** Recordings use unique filenames, so a failure is not overwritten by the next take. The path is remembered in `failed_audio_path` and offered as **Retry last upload**. Successful transcription clears the failure and prunes the cache.
 
-**3. Choosing raw never discards polished.** Both versions are stored on the entry regardless of which one is displayed, so the **Show raw / Show polished** toggle and history's "Original raw" section always have something to show.
+**3. The mic indicator never guesses.** It reports what `getRoutedDevice()` returned, or "unknown" — never an inference from which devices happen to be connected. The old indicator enumerated *available* inputs and so displayed "Bluetooth Mic" whenever a headset was paired, while the built-in mic recorded. That single false label cost two days of unusable dictation before anyone suspected the audio path. See [audio-investigation-2026-07.md](audio-investigation-2026-07.md).
+
+**4. Choosing raw never discards polished.** Both versions are stored on the entry regardless of which one is displayed, so the **Show raw / Show polished** toggle and history's "Original raw" section always have something to show.
 
 ## Error branches
 

@@ -36,8 +36,25 @@ object TranscriptionHistory {
         val timestampMillis: Long,
         val durationSeconds: Int?,
         val rawText: String,
-        val polishedText: String?
+        val polishedText: String?,
+        /** Microphone actually routed to, e.g. "Phone mic". Null for entries predating v2.6. */
+        val routeLabel: String? = null,
+        /** Capture sample rate requested for this recording, in Hz. */
+        val routeSampleRate: Int? = null
     ) {
+
+        /** "Phone mic · 16 kHz", or null when the route was never recorded. */
+        fun formattedRoute(): String? {
+            val label = routeLabel?.takeIf { it.isNotBlank() }
+            val rate = routeSampleRate?.takeIf { it > 0 }?.let { "${it / 1000} kHz" }
+            return when {
+                label != null && rate != null -> "$label · $rate"
+                label != null -> label
+                rate != null -> "Unknown mic · $rate"
+                else -> null
+            }
+        }
+
         fun displayText(): String {
             return polishedText?.takeIf { it.isNotBlank() } ?: rawText
         }
@@ -68,6 +85,7 @@ object TranscriptionHistory {
                 sb.append(" (polished)")
             }
             sb.append(" ---\n")
+            formattedRoute()?.let { sb.append("[Mic] ").append(it).append("\n") }
             sb.append(displayText().trim()).append("\n")
             if (!polishedText.isNullOrBlank() && polishedText != rawText) {
                 sb.append("\n[Raw]\n").append(rawText.trim()).append("\n")
@@ -81,7 +99,9 @@ object TranscriptionHistory {
         rawText: String,
         polishedText: String? = null,
         durationSeconds: Int? = null,
-        timestampMillis: Long = System.currentTimeMillis()
+        timestampMillis: Long = System.currentTimeMillis(),
+        routeLabel: String? = null,
+        routeSampleRate: Int? = null
     ): Entry? {
         val raw = rawText.trim()
         if (raw.isBlank()) return null
@@ -91,7 +111,9 @@ object TranscriptionHistory {
             timestampMillis = timestampMillis,
             durationSeconds = durationSeconds,
             rawText = raw,
-            polishedText = polished
+            polishedText = polished,
+            routeLabel = routeLabel?.takeIf { it.isNotBlank() },
+            routeSampleRate = routeSampleRate?.takeIf { it > 0 }
         )
         val entries = loadEntries(context).toMutableList()
         entries.add(0, entry)
@@ -238,6 +260,9 @@ object TranscriptionHistory {
             } else {
                 put("polishedText", JSONObject.NULL)
             }
+            // Written only when known, so entries predating route capture stay compact.
+            entry.routeLabel?.let { put("routeLabel", it) }
+            entry.routeSampleRate?.let { put("routeSampleRate", it) }
         }
     }
 
@@ -252,13 +277,18 @@ object TranscriptionHistory {
             // single-argument optString is enough — passing a null fallback made Kotlin
             // infer Nothing? for the parameter.
             val polished = if (obj.isNull("polishedText")) null else obj.optString("polishedText")
+            // Absent in entries written before route capture existed; null is correct there.
+            val routeLabel = if (obj.isNull("routeLabel")) null else obj.optString("routeLabel")
+            val routeRate = if (obj.isNull("routeSampleRate")) null else obj.optInt("routeSampleRate")
             list.add(
                 Entry(
                     id = obj.getString("id"),
                     timestampMillis = obj.getLong("timestampMillis"),
                     durationSeconds = duration,
                     rawText = obj.getString("rawText"),
-                    polishedText = polished?.takeIf { it.isNotBlank() }
+                    polishedText = polished?.takeIf { it.isNotBlank() },
+                    routeLabel = routeLabel?.takeIf { it.isNotBlank() },
+                    routeSampleRate = routeRate?.takeIf { it > 0 }
                 )
             )
         }

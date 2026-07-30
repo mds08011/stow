@@ -1,6 +1,7 @@
 package io.github.mds08011.stow
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,8 +17,12 @@ class TranscriptionHistoryTest {
         timestampMillis: Long = 1_700_000_000_000L,
         durationSeconds: Int? = 42,
         rawText: String = "raw text",
-        polishedText: String? = "polished text"
-    ) = TranscriptionHistory.Entry(id, timestampMillis, durationSeconds, rawText, polishedText)
+        polishedText: String? = "polished text",
+        routeLabel: String? = null,
+        routeSampleRate: Int? = null
+    ) = TranscriptionHistory.Entry(
+        id, timestampMillis, durationSeconds, rawText, polishedText, routeLabel, routeSampleRate
+    )
 
     // region JSON round-trip
 
@@ -69,6 +74,69 @@ class TranscriptionHistoryTest {
         assertTrue(TranscriptionHistory.parseJson("").isEmpty())
         assertTrue(TranscriptionHistory.parseJson("   ").isEmpty())
         assertTrue(TranscriptionHistory.parseJson("[]").isEmpty())
+    }
+
+    @Test
+    fun `round trip preserves the recorded audio route`() {
+        val original = listOf(
+            entry(id = "a", routeLabel = "Phone mic", routeSampleRate = 16000),
+            entry(id = "b", routeLabel = "Bluetooth (SCO) · Pixel Buds", routeSampleRate = 8000)
+        )
+
+        val restored = TranscriptionHistory.parseJson(TranscriptionHistory.serializeEntries(original))
+
+        assertEquals(original, restored)
+    }
+
+    @Test
+    fun `entries written before route capture parse with null route`() {
+        // Exactly the shape older installs already have on disk.
+        val legacyJson = """
+            [{"id":"a","timestampMillis":1,"durationSeconds":30,
+              "rawText":"old note","polishedText":null}]
+        """.trimIndent()
+
+        val restored = TranscriptionHistory.parseJson(legacyJson)
+
+        assertEquals(1, restored.size)
+        assertNull(restored[0].routeLabel)
+        assertNull(restored[0].routeSampleRate)
+        assertNull(restored[0].formattedRoute())
+        assertEquals("old note", restored[0].rawText)
+    }
+
+    @Test
+    fun `blank or non-positive route values normalise to null`() {
+        val restored = TranscriptionHistory.parseJson(
+            """[{"id":"a","timestampMillis":1,"durationSeconds":null,"rawText":"x",
+                 "polishedText":null,"routeLabel":"  ","routeSampleRate":0}]"""
+        )
+
+        assertNull(restored[0].routeLabel)
+        assertNull(restored[0].routeSampleRate)
+    }
+
+    @Test
+    fun `formatted route renders label and rate`() {
+        assertEquals(
+            "Phone mic · 16 kHz",
+            entry(routeLabel = "Phone mic", routeSampleRate = 16000).formattedRoute()
+        )
+        assertEquals("Phone mic", entry(routeLabel = "Phone mic").formattedRoute())
+        assertEquals("Unknown mic · 16 kHz", entry(routeSampleRate = 16000).formattedRoute())
+        assertNull(entry().formattedRoute())
+    }
+
+    @Test
+    fun `export includes the mic line only when known`() {
+        val withRoute = entry(
+            polishedText = null,
+            routeLabel = "Bluetooth (SCO)",
+            routeSampleRate = 8000
+        ).toExportBlock()
+        assertTrue(withRoute.contains("[Mic] Bluetooth (SCO) · 8 kHz"))
+
+        assertFalse(entry(polishedText = null).toExportBlock().contains("[Mic]"))
     }
 
     // endregion

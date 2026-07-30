@@ -65,6 +65,9 @@ class MainActivity : AppCompatActivity() {
 
     private var isRecording = false
     private var isPaused = false
+    /** Route reported by the recorder for the current/most recent take. */
+    private var lastRouteLabel: String? = null
+    private var lastRouteSampleRate: Int? = null
     private var lastRawTranscription: String = ""
     private var lastDurationSeconds: Int? = null
     private var lastHistoryEntryId: String? = null
@@ -96,29 +99,21 @@ class MainActivity : AppCompatActivity() {
                         resultShowsPolished = false
                         showRecordingUi()
 
-                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-                        var isBluetooth = false
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            val activeConfigs = audioManager.activeRecordingConfigurations
-                            isBluetooth = activeConfigs.any { config ->
-                                val type = config.audioDevice.type
-                                type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                                    type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                            }
-                        }
-                        if (!isBluetooth && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            val devices = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS)
-                            isBluetooth = devices.any { device ->
-                                device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                                    device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                            }
-                        }
-
-                        tvMicIndicator.text = if (isBluetooth) "Bluetooth Mic" else "Internal Mic"
+                        // The route is resolved from the recorder itself and arrives in a
+                        // follow-up STATE_ROUTE broadcast; never inferred from what happens
+                        // to be connected.
+                        tvMicIndicator.text = "Mic: checking…"
 
                         chronometer.base = SystemClock.elapsedRealtime()
                         chronometer.start()
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    RecordingService.STATE_ROUTE -> {
+                        lastRouteLabel = intent.getStringExtra(RecordingService.EXTRA_ROUTE_LABEL)
+                        lastRouteSampleRate = intent
+                            .getIntExtra(RecordingService.EXTRA_ROUTE_SAMPLE_RATE, -1)
+                            .takeIf { it > 0 }
+                        updateMicIndicator()
                     }
                     RecordingService.STATE_PAUSED -> {
                         isPaused = true
@@ -320,7 +315,9 @@ class MainActivity : AppCompatActivity() {
         outState.putString(STATE_RAW_TRANSCRIPTION, lastRawTranscription)
         outState.putString(STATE_ENTRY_ID, lastHistoryEntryId)
         outState.putString(STATE_STATUS, tvStatus.text?.toString().orEmpty())
+        outState.putString(STATE_ROUTE_LABEL, lastRouteLabel)
         lastDurationSeconds?.let { outState.putInt(STATE_DURATION, it) }
+        lastRouteSampleRate?.let { outState.putInt(STATE_ROUTE_RATE, it) }
     }
 
     /** Re-enters the result screen after a rotation without re-copying or re-saving. */
@@ -335,6 +332,15 @@ class MainActivity : AppCompatActivity() {
             null
         }
         resultShowsPolished = state.getBoolean(STATE_SHOWS_POLISHED, false)
+        lastRouteLabel = state.getString(STATE_ROUTE_LABEL)
+        lastRouteSampleRate = if (state.containsKey(STATE_ROUTE_RATE)) {
+            state.getInt(STATE_ROUTE_RATE)
+        } else {
+            null
+        }
+        if (lastRouteLabel != null || lastRouteSampleRate != null) {
+            updateMicIndicator()
+        }
 
         if (state.getBoolean(STATE_SHOWING_RESULT, false)) {
             showResultUi()
@@ -494,6 +500,22 @@ class MainActivity : AppCompatActivity() {
     private fun setStatus(text: String) {
         tvStatus.text = text
         tvStatus.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    /**
+     * Shows the microphone the recorder actually used. Reports "unknown" rather than
+     * guessing — the previous indicator inferred Bluetooth from merely-connected devices
+     * and so claimed a headset mic while the phone mic recorded.
+     */
+    private fun updateMicIndicator() {
+        val label = lastRouteLabel?.takeIf { it.isNotBlank() }
+        val rate = lastRouteSampleRate?.takeIf { it > 0 }?.let { "${it / 1000} kHz" }
+        tvMicIndicator.text = when {
+            label != null && rate != null -> "Mic: $label · $rate"
+            label != null -> "Mic: $label"
+            rate != null -> "Mic: unknown · $rate"
+            else -> "Mic: unknown"
+        }
     }
 
     private fun updatePauseButton() {
@@ -1052,6 +1074,17 @@ class MainActivity : AppCompatActivity() {
             setTextColor(0xFF888888.toInt())
         }
         container.addView(meta)
+
+        // Which microphone produced this note — the answer to "why is this transcript bad?"
+        entry.formattedRoute()?.let { route ->
+            container.addView(
+                TextView(this).apply {
+                    text = route
+                    textSize = 12f
+                    setTextColor(0xFF888888.toInt())
+                }
+            )
+        }
 
         val body = EditText(this).apply {
             setText(entry.displayText())
@@ -1669,5 +1702,7 @@ class MainActivity : AppCompatActivity() {
         private const val STATE_DURATION = "lastDurationSeconds"
         private const val STATE_ENTRY_ID = "lastHistoryEntryId"
         private const val STATE_STATUS = "statusText"
+        private const val STATE_ROUTE_LABEL = "lastRouteLabel"
+        private const val STATE_ROUTE_RATE = "lastRouteSampleRate"
     }
 }

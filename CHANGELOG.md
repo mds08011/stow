@@ -4,6 +4,17 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
+## [Unreleased]
+
+### Fixed
+- **The microphone indicator no longer lies.** It previously enumerated *connected* input devices, so it displayed "Bluetooth Mic" whenever a headset was merely paired — while the phone's built-in microphone did the recording. It now reports the device the recorder is actually routed to, read back via `getRoutedDevice()` after start, and says "unknown" rather than guessing. This mislabel caused two days of unusable dictation before the audio path was suspected; see [docs/audio-investigation-2026-07.md](docs/audio-investigation-2026-07.md).
+
+### Added
+- Every note records which microphone and sample rate produced it, shown in history detail and included in exports — so a bad transcription can be attributed rather than guessed at.
+
+### Known limitation
+- Stow records from the phone microphone only. A connected Bluetooth headset is **not** used for input; that work is tracked as A.4 in [docs/audio-implementation-prompts.md](docs/audio-implementation-prompts.md).
+
 ## [2.5] — 2026-07-30
 
 The largest release so far: user-editable polish presets, a set of correctness fixes around losing data, and a working release pipeline.

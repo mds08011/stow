@@ -53,6 +53,9 @@ class RecordingService : Service() {
         const val EXTRA_DURATION = "EXTRA_DURATION"
         /** Id of the history entry the service already saved for this transcription. */
         const val EXTRA_ENTRY_ID = "EXTRA_ENTRY_ID"
+        /** The microphone actually routed to, resolved after start() rather than guessed. */
+        const val EXTRA_ROUTE_LABEL = "EXTRA_ROUTE_LABEL"
+        const val EXTRA_ROUTE_SAMPLE_RATE = "EXTRA_ROUTE_SAMPLE_RATE"
 
         const val PREFS_NAME = "StowPrefs"
         /** Set when a transcription was saved but no UI has shown it yet. */
@@ -71,6 +74,12 @@ class RecordingService : Service() {
         private const val AUDIO_FILE_SUFFIX = ".m4a"
         private const val RETRY_DELAY_MILLIS = 2000L
 
+        /** Requested capture rate. Reported as-is; MediaRecorder may not honour it. */
+        const val CAPTURE_SAMPLE_RATE = 16000
+        /** getRoutedDevice() is briefly null right after start(); retry once. */
+        private const val ROUTE_RETRY_DELAY_MILLIS = 150L
+        private const val TAG = "StowAudio"
+
         private const val RECORDING_NOTIFICATION_ID = 1
         const val RESULT_NOTIFICATION_ID = 2
         private const val RECORDING_CHANNEL_ID = "StowChannel"
@@ -83,6 +92,8 @@ class RecordingService : Service() {
         const val STATE_STOPPED = "STATE_STOPPED"
         const val STATE_PAUSED = "STATE_PAUSED"
         const val STATE_RESUMED = "STATE_RESUMED"
+        /** Follow-up once the routed device is known, so STATE_RECORDING stays instant. */
+        const val STATE_ROUTE = "STATE_ROUTE"
     }
 
     private var apiKey: String = ""
@@ -93,6 +104,10 @@ class RecordingService : Service() {
     /** Recording time excluding paused stretches, so usage and duration stay honest. */
     private var accumulatedActiveMillis = 0L
     private var segmentStartMillis = 0L
+
+    /** The microphone this recording actually used; stored on the history entry. */
+    private var routeLabel: String? = null
+    private var routeSampleRate: Int? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent != null) {
@@ -149,7 +164,7 @@ class RecordingService : Service() {
             // cuts the upload to roughly 14 MB/hour — the difference between a note landing
             // and a note timing out on a weak site connection.
             setAudioChannels(1)
-            setAudioSamplingRate(16000)
+            setAudioSamplingRate(CAPTURE_SAMPLE_RATE)
             setAudioEncodingBitRate(32000)
             setOutputFile(audioFile?.absolutePath)
 
@@ -162,7 +177,10 @@ class RecordingService : Service() {
                 accumulatedActiveMillis = 0L
                 segmentStartMillis = android.os.SystemClock.elapsedRealtime()
                 startTimeMillis = segmentStartMillis
+                routeLabel = null
+                routeSampleRate = null
                 broadcastState(STATE_RECORDING)
+                resolveRoutedDevice(retry = true)
             } catch (e: Exception) {
                 e.printStackTrace()
                 setRecordingFlag(false)
@@ -170,6 +188,87 @@ class RecordingService : Service() {
                 stopSelf()
             }
         }
+    }
+
+    /**
+     * Asks MediaRecorder which input device it is actually using, rather than inferring it
+     * from what happens to be connected. The previous indicator enumerated available input
+     * devices and so reported "Bluetooth Mic" whenever a headset was merely paired, while
+     * the built-in mic did the recording — see docs/audio-investigation-2026-07.md.
+     */
+    private fun resolveRoutedDevice(retry: Boolean) {
+        val device = try {
+            mediaRecorder?.routedDevice
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+
+        if (device == null) {
+            if (retry && isRecording) {
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                    { if (isRecording) resolveRoutedDevice(retry = false) },
+                    ROUTE_RETRY_DELAY_MILLIS
+                )
+            } else if (isRecording) {
+                // Never guess. An unknown route is reported as unknown.
+                routeLabel = null
+                routeSampleRate = CAPTURE_SAMPLE_RATE
+                broadcastRoute()
+            }
+            return
+        }
+
+        routeLabel = describeDevice(device)
+        routeSampleRate = CAPTURE_SAMPLE_RATE
+
+        val deviceRates = try {
+            device.sampleRates?.joinToString(",")?.ifEmpty { "unspecified" } ?: "unspecified"
+        } catch (e: Exception) {
+            "unavailable"
+        }
+        android.util.Log.i(
+            TAG,
+            "routed input: type=${device.type} label=$routeLabel " +
+                "requestedRate=$CAPTURE_SAMPLE_RATE deviceRates=$deviceRates"
+        )
+
+        broadcastRoute()
+    }
+
+    private fun describeDevice(device: android.media.AudioDeviceInfo): String {
+        val base = when (device.type) {
+            android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC -> "Phone mic"
+            android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Bluetooth (SCO)"
+            android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Wired headset"
+            android.media.AudioDeviceInfo.TYPE_USB_DEVICE,
+            android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+            android.media.AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB"
+            else -> "Other (type ${device.type})"
+        }
+        // The built-in mic's product name is just the phone model, which adds nothing.
+        val product = try {
+            device.productName?.toString()?.trim()
+        } catch (e: Exception) {
+            null
+        }
+        return if (!product.isNullOrEmpty() &&
+            device.type != android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC
+        ) {
+            "$base · $product"
+        } else {
+            base
+        }
+    }
+
+    private fun broadcastRoute() {
+        val intent = Intent(BROADCAST_STATE).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_STATE, STATE_ROUTE)
+            routeLabel?.let { putExtra(EXTRA_ROUTE_LABEL, it) }
+            routeSampleRate?.let { putExtra(EXTRA_ROUTE_SAMPLE_RATE, it) }
+        }
+        sendBroadcast(intent)
     }
 
     private fun buildRecordingNotification(paused: Boolean): Notification {
@@ -430,7 +529,9 @@ class RecordingService : Service() {
                             context = this@RecordingService,
                             rawText = text,
                             polishedText = null,
-                            durationSeconds = durationSeconds
+                            durationSeconds = durationSeconds,
+                            routeLabel = routeLabel,
+                            routeSampleRate = routeSampleRate
                         )
                         if (entry != null) {
                             prefs().edit().putString(PREF_PENDING_RESULT_ID, entry.id).apply()
