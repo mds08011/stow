@@ -22,10 +22,11 @@ class TranscriptionHistoryTest {
         routeSampleRate: Int? = null,
         avgLogprob: Double? = null,
         maxNoSpeechProb: Double? = null,
-        maxCompressionRatio: Double? = null
+        maxCompressionRatio: Double? = null,
+        audioPath: String? = null
     ) = TranscriptionHistory.Entry(
         id, timestampMillis, durationSeconds, rawText, polishedText, routeLabel, routeSampleRate,
-        avgLogprob, maxNoSpeechProb, maxCompressionRatio
+        avgLogprob, maxNoSpeechProb, maxCompressionRatio, audioPath
     )
 
     // region JSON round-trip
@@ -166,6 +167,29 @@ class TranscriptionHistoryTest {
         assertNull(restored[0].maxNoSpeechProb)
         assertNull(restored[0].maxCompressionRatio)
         assertNull(restored[0].qualityWarning())
+    }
+
+    @Test
+    fun `round trip preserves the audio path`() {
+        val original = listOf(entry(audioPath = "/data/cache/audio_123.m4a"))
+
+        val restored = TranscriptionHistory.parseJson(TranscriptionHistory.serializeEntries(original))
+
+        assertEquals(original, restored)
+        assertEquals("/data/cache/audio_123.m4a", restored[0].audioPath)
+    }
+
+    @Test
+    fun `missing or blank audio path parses as null`() {
+        val restored = TranscriptionHistory.parseJson(
+            """[{"id":"a","timestampMillis":1,"durationSeconds":null,"rawText":"x",
+                 "polishedText":null,"audioPath":"  "},
+                {"id":"b","timestampMillis":2,"durationSeconds":null,"rawText":"y",
+                 "polishedText":null}]"""
+        )
+
+        assertNull(restored[0].audioPath)
+        assertNull(restored[1].audioPath)
     }
 
     // endregion

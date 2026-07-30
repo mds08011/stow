@@ -86,6 +86,7 @@ Shared preferences crossing the process boundary (all in `StowPrefs`):
 |---|---|---|
 | `pending_result_id` | service | activity (`onStart`) |
 | _(files)_ `Documents/responses/<entryId>.json` | service | manual troubleshooting; capped at 20, oldest pruned |
+| _(files)_ `cache/audio_<ts>.m4a` | service | Share audio / Re-transcribe; newest 5 kept for 7 days, plus any pending retry |
 | `ui_visible` | activity | service (whether to notify) |
 | `is_recording` | service | Quick Settings tile |
 | `failed_audio_path`, `failed_audio_duration` | service | activity (Retry button) |

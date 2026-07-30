@@ -951,6 +951,27 @@ class MainActivity : AppCompatActivity() {
         ).show()
     }
 
+    /** Recordings retained for troubleshooting. The OS may reclaim these at any time. */
+    private fun retainedAudioFiles(): List<java.io.File> = try {
+        externalCacheDir
+            ?.listFiles { f ->
+                f.name.startsWith(RecordingService.AUDIO_FILE_PREFIX) &&
+                    f.name.endsWith(RecordingService.AUDIO_FILE_SUFFIX)
+            }
+            ?.toList()
+            .orEmpty()
+    } catch (e: Exception) {
+        e.printStackTrace()
+        emptyList()
+    }
+
+    private fun clearAudioButtonLabel(): String {
+        val files = retainedAudioFiles()
+        if (files.isEmpty()) return "Clear saved audio (none)"
+        val megabytes = files.sumOf { it.length() }.toDouble() / (1024 * 1024)
+        return String.format(Locale.getDefault(), "Clear saved audio (%.1f MB)", megabytes)
+    }
+
     private fun copyToClipboard(text: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Transcription", text)
@@ -1174,61 +1195,192 @@ class MainActivity : AppCompatActivity() {
         currentText: String,
         parentDialog: AlertDialog
     ) {
-        val options = arrayOf(
-            "Share",
-            "Export note",
-            "Re-polish",
-            "Delete",
-            "Save edits"
-        )
+        // Built as label/action pairs so the audio entries can appear conditionally without
+        // index drift.
+        val actions = LinkedHashMap<String, () -> Unit>()
+
+        actions["Share"] = {
+            if (currentText.isBlank()) {
+                Toast.makeText(this, "Nothing to share", Toast.LENGTH_SHORT).show()
+            } else {
+                shareText(currentText, "Share note")
+            }
+        }
+        actions["Export note"] = { shareText(TranscriptionHistory.exportOne(entry), "Export note") }
+        actions["Re-polish"] = {
+            parentDialog.dismiss()
+            rePolishHistoryEntry(entry)
+        }
+
+        // Only when the recording is still on disk — it is pruned after a few notes.
+        val audioFile = entry.audioPath?.let { java.io.File(it) }?.takeIf { it.exists() }
+        if (audioFile != null) {
+            actions["Share audio"] = { shareAudio(audioFile) }
+            actions["Re-transcribe…"] = {
+                parentDialog.dismiss()
+                showRetranscribeDialog(entry, audioFile)
+            }
+        }
+
+        actions["Delete"] = {
+            AlertDialog.Builder(this)
+                .setTitle("Delete note?")
+                .setMessage("This permanently removes the note from local history.")
+                .setPositiveButton("Delete") { _, _ ->
+                    TranscriptionHistory.delete(this, entry.id)
+                    if (lastHistoryEntryId == entry.id) {
+                        lastHistoryEntryId = null
+                    }
+                    parentDialog.dismiss()
+                    Toast.makeText(this, "Note deleted", Toast.LENGTH_SHORT).show()
+                    showHistoryBrowser()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+        actions["Save edits"] = {
+            val updated = if (entry.polishedText != null) {
+                entry.copy(polishedText = currentText)
+            } else {
+                entry.copy(rawText = currentText)
+            }
+            TranscriptionHistory.update(this, updated)
+            Toast.makeText(this, "Edits saved", Toast.LENGTH_SHORT).show()
+            parentDialog.dismiss()
+            showHistoryDetail(updated)
+        }
+
+        val labels = actions.keys.toTypedArray()
+        val handlers = actions.values.toList()
         AlertDialog.Builder(this)
             .setTitle("Actions")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> {
-                        if (currentText.isBlank()) {
-                            Toast.makeText(this, "Nothing to share", Toast.LENGTH_SHORT).show()
-                        } else {
-                            shareText(currentText, "Share note")
-                        }
-                    }
-                    1 -> {
-                        shareText(TranscriptionHistory.exportOne(entry), "Export note")
-                    }
-                    2 -> {
-                        parentDialog.dismiss()
-                        rePolishHistoryEntry(entry)
-                    }
-                    3 -> {
-                        AlertDialog.Builder(this)
-                            .setTitle("Delete note?")
-                            .setMessage("This permanently removes the note from local history.")
-                            .setPositiveButton("Delete") { _, _ ->
-                                TranscriptionHistory.delete(this, entry.id)
-                                if (lastHistoryEntryId == entry.id) {
-                                    lastHistoryEntryId = null
-                                }
-                                parentDialog.dismiss()
-                                Toast.makeText(this, "Note deleted", Toast.LENGTH_SHORT).show()
-                                showHistoryBrowser()
-                            }
-                            .setNegativeButton("Cancel", null)
-                            .show()
-                    }
-                    4 -> {
-                        val updated = if (entry.polishedText != null) {
-                            entry.copy(polishedText = currentText)
-                        } else {
-                            entry.copy(rawText = currentText)
-                        }
-                        TranscriptionHistory.update(this, updated)
-                        Toast.makeText(this, "Edits saved", Toast.LENGTH_SHORT).show()
-                        parentDialog.dismiss()
-                        showHistoryDetail(updated)
-                    }
-                }
-            }
+            .setItems(labels) { _, which -> handlers[which].invoke() }
             .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun shareAudio(file: java.io.File) {
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "audio/mp4"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share recording"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not share the recording", Toast.LENGTH_SHORT).show()
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Re-runs a stored recording through a chosen model. This is the A/B that turns "the
+     * transcription was bad" into evidence about whether the audio or the model was at fault.
+     */
+    private fun showRetranscribeDialog(
+        entry: TranscriptionHistory.Entry,
+        audioFile: java.io.File
+    ) {
+        val apiKey = getApiKey().orEmpty()
+        if (apiKey.isBlank()) {
+            Toast.makeText(this, "Set your Groq API key in Settings first", Toast.LENGTH_SHORT).show()
+            showApiKeyDialog()
+            return
+        }
+
+        val models = arrayOf(
+            AudioTranscriber.MODEL_TURBO to "whisper-large-v3-turbo (current)",
+            AudioTranscriber.MODEL_LARGE to "whisper-large-v3 (slower, more accurate)"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Re-transcribe with")
+            .setItems(models.map { it.second }.toTypedArray()) { _, which ->
+                val model = models[which].first
+                Toast.makeText(this, "Re-transcribing…", Toast.LENGTH_SHORT).show()
+                AudioTranscriber.transcribe(
+                    file = audioFile,
+                    apiKey = apiKey,
+                    jargon = getJargon().orEmpty(),
+                    model = model,
+                    onSuccess = { parsed ->
+                        runOnUiThread { showRetranscribeComparison(entry, parsed, models[which].second) }
+                    },
+                    onError = { error ->
+                        runOnUiThread {
+                            Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                            showHistoryDetail(entry)
+                        }
+                    }
+                )
+            }
+            .setNegativeButton("Cancel") { _, _ -> showHistoryDetail(entry) }
+            .show()
+    }
+
+    private fun showRetranscribeComparison(
+        entry: TranscriptionHistory.Entry,
+        parsed: TranscriptionResponse.Parsed,
+        modelLabel: String
+    ) {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
+        val gap = (8 * density).toInt()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        fun label(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, gap, 0, 0)
+        }
+
+        fun bodyText(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 14f
+            setTextIsSelectable(true)
+        }
+
+        container.addView(label("Current"))
+        container.addView(bodyText(entry.rawText))
+        container.addView(label("New — $modelLabel"))
+        container.addView(bodyText(parsed.text))
+
+        val candidate = entry.copy(
+            avgLogprob = parsed.avgLogprob,
+            maxNoSpeechProb = parsed.maxNoSpeechProb,
+            maxCompressionRatio = parsed.maxCompressionRatio
+        )
+        candidate.qualityWarning()?.let {
+            container.addView(
+                TextView(this).apply {
+                    text = "⚠ The new transcription also looks unreliable — $it"
+                    textSize = 12f
+                    setPadding(0, gap, 0, 0)
+                }
+            )
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Re-transcription")
+            .setView(ScrollView(this).apply { addView(container) })
+            .setPositiveButton("Replace") { _, _ ->
+                // Only the raw text and its statistics change; polish stays the user's.
+                val updated = candidate.copy(rawText = parsed.text)
+                TranscriptionHistory.update(this, updated)
+                Toast.makeText(this, "Transcription replaced", Toast.LENGTH_SHORT).show()
+                showHistoryDetail(updated)
+            }
+            .setNegativeButton("Keep existing") { _, _ -> showHistoryDetail(entry) }
             .show()
     }
 
@@ -1479,6 +1631,29 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { showPresetManagerDialog() }
         }
         layout.addView(presetsButton)
+
+        // Recent recordings are kept on device for troubleshooting; be honest about the cost.
+        val audioButton = Button(this).apply {
+            text = clearAudioButtonLabel()
+            setOnClickListener {
+                val files = retainedAudioFiles()
+                if (files.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "No saved recordings", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                files.forEach { it.delete() }
+                text = clearAudioButtonLabel()
+                Toast.makeText(this@MainActivity, "Saved recordings deleted", Toast.LENGTH_SHORT).show()
+            }
+        }
+        layout.addView(audioButton)
+
+        val audioHint = TextView(this).apply {
+            text = "Stow keeps the last ${RecordingService.MAX_RETAINED_AUDIO} recordings so a bad transcription can be shared or re-run from history. They are deleted automatically after a week."
+            textSize = 12f
+            setPadding(8, 4, 8, 0)
+        }
+        layout.addView(audioHint)
 
         builder.setView(layout)
 

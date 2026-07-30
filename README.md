@@ -155,6 +155,8 @@ Stow now flags this itself: when the transcription model reports poor decoding, 
 
 The usual cause is microphone distance.
 
+**To investigate a bad note:** open it in **View History → More…**. While the recording is still on device you get **Share audio** (pull the .m4a off the phone) and **Re-transcribe…** (re-run it through `whisper-large-v3`, the slower non-turbo model, and compare side by side before deciding whether to replace). Stow keeps the last 5 recordings for a week; clear them any time from Settings.
+
 * **Check the mic line** on the main screen or in the note's history detail. If it says *Phone mic*, the audio came from the handset — a connected Bluetooth headset is **not** used for recording.
 * Keep the phone out of a pocket and within arm's reach. A phone recording from a jacket pocket in a moving car produces exactly this failure.
 * Repetition ("and then add that in, and then add that in"), fluent-but-wrong words, and phrases from nowhere are all signatures of degraded input rather than a bug in the transcription request.

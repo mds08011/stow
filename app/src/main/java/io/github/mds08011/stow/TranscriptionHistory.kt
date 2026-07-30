@@ -49,7 +49,12 @@ object TranscriptionHistory {
         /** Decoding statistics from verbose_json; null for entries predating v2.6. */
         val avgLogprob: Double? = null,
         val maxNoSpeechProb: Double? = null,
-        val maxCompressionRatio: Double? = null
+        val maxCompressionRatio: Double? = null,
+        /**
+         * The recording this note came from, retained for a while so a bad transcription
+         * can be re-run or shared. The file may be gone — check before offering it.
+         */
+        val audioPath: String? = null
     ) {
 
         /**
@@ -132,7 +137,8 @@ object TranscriptionHistory {
         routeSampleRate: Int? = null,
         avgLogprob: Double? = null,
         maxNoSpeechProb: Double? = null,
-        maxCompressionRatio: Double? = null
+        maxCompressionRatio: Double? = null,
+        audioPath: String? = null
     ): Entry? {
         val raw = rawText.trim()
         if (raw.isBlank()) return null
@@ -147,7 +153,8 @@ object TranscriptionHistory {
             routeSampleRate = routeSampleRate?.takeIf { it > 0 },
             avgLogprob = avgLogprob,
             maxNoSpeechProb = maxNoSpeechProb,
-            maxCompressionRatio = maxCompressionRatio
+            maxCompressionRatio = maxCompressionRatio,
+            audioPath = audioPath?.takeIf { it.isNotBlank() }
         )
         val entries = loadEntries(context).toMutableList()
         entries.add(0, entry)
@@ -307,6 +314,7 @@ object TranscriptionHistory {
             entry.avgLogprob?.let { put("avgLogprob", it) }
             entry.maxNoSpeechProb?.let { put("maxNoSpeechProb", it) }
             entry.maxCompressionRatio?.let { put("maxCompressionRatio", it) }
+            entry.audioPath?.let { put("audioPath", it) }
         }
     }
 
@@ -335,7 +343,12 @@ object TranscriptionHistory {
                     routeSampleRate = routeRate?.takeIf { it > 0 },
                     avgLogprob = optDoubleOrNull(obj, "avgLogprob"),
                     maxNoSpeechProb = optDoubleOrNull(obj, "maxNoSpeechProb"),
-                    maxCompressionRatio = optDoubleOrNull(obj, "maxCompressionRatio")
+                    maxCompressionRatio = optDoubleOrNull(obj, "maxCompressionRatio"),
+                    audioPath = if (obj.isNull("audioPath")) {
+                        null
+                    } else {
+                        obj.optString("audioPath").takeIf { it.isNotBlank() }
+                    }
                 )
             )
         }

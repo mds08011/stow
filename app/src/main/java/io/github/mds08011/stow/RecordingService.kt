@@ -18,8 +18,6 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import android.content.pm.ServiceInfo
 import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -69,8 +67,8 @@ class RecordingService : Service() {
 
         /** Groq's free tier rejects larger uploads; stay clear of the 25 MB ceiling. */
         private const val MAX_UPLOAD_BYTES = 24L * 1024 * 1024
-        private const val AUDIO_FILE_PREFIX = "audio_"
-        private const val AUDIO_FILE_SUFFIX = ".m4a"
+        const val AUDIO_FILE_PREFIX = "audio_"
+        const val AUDIO_FILE_SUFFIX = ".m4a"
         private const val RETRY_DELAY_MILLIS = 2000L
 
         /** Requested capture rate. Reported as-is; MediaRecorder may not honour it. */
@@ -82,6 +80,14 @@ class RecordingService : Service() {
         /** Raw verbose_json bodies, kept for troubleshooting a bad transcription. */
         const val RESPONSES_DIR = "responses"
         private const val MAX_STORED_RESPONSES = 20
+
+        /**
+         * Recent recordings are kept so a bad transcription can be re-run or shared.
+         * externalCacheDir may be reclaimed by the OS at any time — a missing file is
+         * normal, never an error.
+         */
+        const val MAX_RETAINED_AUDIO = 5
+        private const val AUDIO_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
 
         private const val RECORDING_NOTIFICATION_ID = 1
         const val RESULT_NOTIFICATION_ID = 2
@@ -429,20 +435,42 @@ class RecordingService : Service() {
         }
     }
 
-    /** Drops stale recordings from the cache, keeping any that a retry still needs. */
+    /**
+     * Retains the most recent few recordings instead of deleting on success, so a bad
+     * transcription can be re-run or shared rather than being unreproducible. Anything
+     * beyond the cap, or older than the retention window, is dropped — as is anything the
+     * pending retry still needs, which is always kept.
+     */
     private fun cleanupAudioCache(keepPath: String?) {
         try {
-            externalCacheDir?.listFiles()?.forEach { candidate ->
-                if (candidate.name.startsWith(AUDIO_FILE_PREFIX) &&
-                    candidate.name.endsWith(AUDIO_FILE_SUFFIX) &&
-                    candidate.absolutePath != keepPath
-                ) {
-                    candidate.delete()
-                }
-            }
+            val files = audioCacheFiles()
+            if (files.isEmpty()) return
+
+            val cutoff = System.currentTimeMillis() - AUDIO_RETENTION_MILLIS
+            val keep = files
+                .sortedByDescending { it.lastModified() }
+                .take(MAX_RETAINED_AUDIO)
+                .filter { it.lastModified() >= cutoff }
+                .map { it.absolutePath }
+                .toMutableSet()
+
+            keepPath?.let { keep.add(it) }
+            prefs().getString(PREF_FAILED_AUDIO_PATH, null)?.let { keep.add(it) }
+
+            files.forEach { if (it.absolutePath !in keep) it.delete() }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun audioCacheFiles(): List<File> = try {
+        externalCacheDir
+            ?.listFiles { f -> f.name.startsWith(AUDIO_FILE_PREFIX) && f.name.endsWith(AUDIO_FILE_SUFFIX) }
+            ?.toList()
+            .orEmpty()
+    } catch (e: Exception) {
+        e.printStackTrace()
+        emptyList()
     }
 
     private fun retryUpload() {
@@ -496,32 +524,13 @@ class RecordingService : Service() {
             return
         }
 
-        // Only the user's own vocabulary is sent. The Whisper prompt field is capped around
-        // 224 tokens, so a generic hardcoded seed used to crowd out the terms that actually
-        // matter for this user's work.
-        val prompt = jargon.trim()
-
-        val requestBody = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, file.asRequestBody("audio/mp4".toMediaType()))
-            .addFormDataPart("model", "whisper-large-v3-turbo")
-            .addFormDataPart("language", "en")
-            .addFormDataPart("temperature", "0")
-            // Returns per-segment decoding statistics, the only objective signal that a
-            // transcription is a hallucination rather than a transcript.
-            .addFormDataPart("response_format", "verbose_json")
-            .apply {
-                if (prompt.isNotEmpty()) {
-                    addFormDataPart("prompt", prompt)
-                }
-            }
-            .build()
-
-        val request = Request.Builder()
-            .url("https://api.groq.com/openai/v1/audio/transcriptions")
-            .header("Authorization", "Bearer $apiKey")
-            .post(requestBody)
-            .build()
+        // Shared with the re-transcribe path so the two cannot drift apart.
+        val request = AudioTranscriber.buildRequest(
+            file = file,
+            apiKey = apiKey,
+            jargon = jargon,
+            model = AudioTranscriber.MODEL_TURBO
+        )
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -555,7 +564,8 @@ class RecordingService : Service() {
                         val text = parsed.text
 
                         clearUploadFailure()
-                        cleanupAudioCache(keepPath = null)
+                        // Keep this recording explicitly: it is the one the note points at.
+                        cleanupAudioCache(keepPath = file.absolutePath)
 
                         // Save history here, not in the UI: the activity may already be stopped
                         // (screen off, another app) and would never receive the broadcast, which
@@ -570,7 +580,8 @@ class RecordingService : Service() {
                             routeSampleRate = routeSampleRate,
                             avgLogprob = parsed.avgLogprob,
                             maxNoSpeechProb = parsed.maxNoSpeechProb,
-                            maxCompressionRatio = parsed.maxCompressionRatio
+                            maxCompressionRatio = parsed.maxCompressionRatio,
+                            audioPath = file.absolutePath
                         )
                         if (entry != null) {
                             prefs().edit().putString(PREF_PENDING_RESULT_ID, entry.id).apply()
