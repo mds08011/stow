@@ -100,6 +100,17 @@ The repeated phantom phrase is otherwise well explained: Whisper emits high-prio
 
 ---
 
+## Status of this investigation
+
+| Fix | State |
+|---|---|
+| F1 / D1 — truthful indicator, route recorded per note | Shipped, v2.6 |
+| F3 / D3 — `verbose_json`, quality warnings, stored responses | Shipped, v2.6 |
+| D2 / D4 — retained audio, share, re-transcribe with model choice | Shipped, v2.6 |
+| F2 / F4 — actual Bluetooth routing, route-change detection | **Not started**, gated on the confirming test below |
+
+Cause 1 (recording from the internal mic while believing it was the headset) is now **visible** but not **fixed** — v2.6 tells you which microphone was used; it does not let you change it. Causes 2 and 3 are addressed by the explicit `temperature`, `language` and prompt changes in v2.5 plus the warnings in v2.6.
+
 ## What v2.5 already changed
 
 | Item | Status |

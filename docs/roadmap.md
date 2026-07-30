@@ -12,17 +12,49 @@ These are the constraints the app is built around. A change that conflicts with 
 4. **Field-first.** Gloves, sunlight, marginal LTE, a phone in a pocket mid-upload. Reliability under those conditions beats features.
 5. **Simple enough to maintain.** One activity, plain `SharedPreferences`, hand-built JSON, no architecture frameworks. The app is maintained by a non-professional developer working with AI tools; the code has to stay legible to that workflow.
 
+## Next steps — read this first if picking the project back up
+
+### 1. Decide whether A.4 is needed (blocked on one test, not on code)
+
+The July 2026 investigation found the app has **never** used a Bluetooth headset microphone — `AudioSource.MIC` with no SCO routing always records from the phone. v2.6 made that visible but did not change it. A.4 would add real routing control.
+
+**Do not build A.4 until this test has been run**, because it may not be worth building:
+
+> Record a normal note with the phone at arm's reach, not in a pocket. Check the mic line on the main screen and in history detail.
+>
+> - If transcription quality is now fine, the July failure was **microphone distance**, not routing. A.4 becomes a convenience rather than a fix, and may be worth skipping entirely — Bluetooth SCO is narrowband 8–16 kHz and frequently transcribes *worse* than a phone mic held properly.
+> - If quality is still poor with the phone close, then the audio path itself is suspect and A.4 moves back up.
+
+If it does go ahead: [audio-implementation-prompts.md](audio-implementation-prompts.md) § A.4 is written and ready. It defaults to the phone mic, adds an explicit *Prefer Bluetooth mic / Always use phone mic* setting, and requires device testing that CI cannot do.
+
+### 2. Device testing owed from v2.5 and v2.6
+
+None of this is verifiable in CI, and none of it has been confirmed on hardware:
+
+| What | Why it matters |
+|---|---|
+| Background the app during upload → notification → reopen | The A-1 data-loss fix; the highest-consequence unverified change |
+| Exactly one history entry per recording | A duplicate would be quiet and easy to miss |
+| Pause 30 s mid-recording → stored duration excludes it | Feeds the daily free-tier counter |
+| Airplane-mode → **Retry last upload** | Recovers a note instead of losing it |
+| Quick Settings tile start/stop | Never exercised on a device |
+| Launcher icon against other home-screen icons | Geometry is correct; visual weight is a judgement call |
+
+### 3. Tune the quality thresholds against real recordings
+
+`LOGPROB_LIMIT`, `NO_SPEECH_LIMIT` and `COMPRESSION_RATIO_LIMIT` in `TranscriptionHistory` are Whisper's own defaults, **not** validated against this user's audio. Once there are a few flagged and unflagged notes, check for false positives and negatives and adjust. They are named constants for exactly this reason.
+
 ## Planned / open
 
 Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for the reasoning behind each.
 
 | Item | Notes |
 |---|---|
-| **Audio routing** — the app has never used a Bluetooth headset mic, and the indicator claimed otherwise | Highest priority. See [audio-investigation-2026-07.md](audio-investigation-2026-07.md) and [audio-implementation-prompts.md](audio-implementation-prompts.md) |
+| **A.4 — Bluetooth mic routing** | Gated on the test above. Prompt is written and ready |
 | Screenshots in the README | Needs a physical device; scaffold is in `screenshots/` |
 | Legacy launcher icon below API 26 | Either add PNG fallbacks or raise `minSdk` to 26 |
 | Dated result-field background | `@android:drawable/edit_text` is a Holo 9-patch; renders poorly in dark mode |
-| Background upload errors are silent | A failed upload while backgrounded shows nothing until you reopen |
+| Background upload errors are silent | A failed upload while backgrounded shows nothing until you reopen — the sibling of the A-1 fix |
 | Encrypted API key storage | Judged not worth the dependency; README wording corrected instead |
 
 ## Deliberately declined

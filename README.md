@@ -4,7 +4,7 @@ A lightweight, highly accurate Android dictation app built for speed, privacy, a
 
 Unlike heavy offline apps that drain battery and overheat your phone by running massive AI models locally, **Stow** acts as a lightning-fast API wrapper. It records your audio and offloads the heavy lifting to the [Groq API](https://groq.com/), utilizing the `whisper-large-v3-turbo` model for near-instant, desktop-grade transcriptions directly on your mobile device.
 
-**Current version: 2.5**
+**Current version: 2.6**
 
 ## Features
 * **Massive AI Models, Zero Hardware Tax:** Uses Whisper Large-v3-Turbo without competing with Android's system processes for memory.
@@ -29,7 +29,7 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
   Pick the preset from the compact selector next to **Polish**; the choice is remembered and is what auto-polish uses. With auto-polish on there is **no confirmation step** — you land straight on the editable result with the polished text already copied, and a **Show raw / Show polished** toggle in the result header if you want the other version. Add your own presets, edit any prompt, rename, and delete custom ones under **Settings → Polish presets…**. The two built-ins can be reset to their shipped text but never deleted.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Your Own API Key:** Keys are never hardcoded. You manage your key inside the app, stored in app-private `SharedPreferences` on your device. It is not encrypted at rest, and it never leaves the phone except in calls to Groq.
-* **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.5** for this release).
+* **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.6** for this release).
 * **Editable Jargon Dictionary:** Save custom vocabulary to ensure highly accurate transcriptions for industry-specific terms. Accessed via its own dedicated button on the main screen.
 * **Full Local History:** Structured on-device history for each note (timestamp, duration when available, raw text, and polished text when polished). Browse a clean list with date/time and preview, **search by keyword**, open a detail view to copy, share, re-polish, edit/save, delete, or export a single note. Export the entire history as plain text via the system share sheet. Storage is local only (JSON under app Documents; legacy plain-text logs are migrated automatically).
 * **Material Design Icon:** Minimal adaptive vector launcher icon, correctly centred inside the circular mask, with a monochrome layer for Android 13+ themed icons.
@@ -63,7 +63,7 @@ _Captures pending — see [screenshots/README.md](screenshots/README.md) for the
 ### Download the APK (recommended for most users)
 
 1. Open the [Stow Releases](https://github.com/mds08011/stow/releases) page on GitHub.
-2. Download the latest `.apk` asset (for example, `stow-app-v2.5.apk`).
+2. Download the latest `.apk` asset (for example, `stow-app-v2.6.apk`).
 3. On your Android device, open the downloaded file (from Chrome Downloads, Files, or your email client).
 4. If prompted, allow installation from that source:
    * **Android 8+:** Tap **Settings** when asked to allow installs from this app, enable **Allow from this source**, then return and install.
@@ -92,9 +92,9 @@ You can trigger a new release directly from the GitHub web interface:
 2. Click the 'Actions' tab.
 3. Click 'Build and Release APK' on the left sidebar.
 4. Click the 'Run workflow' dropdown button on the right side.
-5. Enter the desired version number (e.g., v2.5) and click the green 'Run workflow' button.
+5. Enter the desired version number (e.g., v2.6) and click the green 'Run workflow' button.
 
-Once triggered, the automated pipeline will build a **signed** release APK, verify the signature, rename the artifact dynamically (e.g., stow-app-v2.5.apk), and attach it to a new GitHub Release page for easy downloading.
+Once triggered, the automated pipeline will build a **signed** release APK, verify the signature, rename the artifact dynamically (e.g., stow-app-v2.6.apk), and attach it to a new GitHub Release page for easy downloading.
 
 Releasing requires four repository secrets holding the signing keystore. This is a one-time setup — see [docs/release-signing.md](docs/release-signing.md). Without them the workflow fails immediately rather than publishing an APK that cannot be upgraded in place.
 
