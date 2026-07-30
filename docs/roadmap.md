@@ -18,6 +18,7 @@ Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for t
 
 | Item | Notes |
 |---|---|
+| **Audio routing** — the app has never used a Bluetooth headset mic, and the indicator claimed otherwise | Highest priority. See [audio-investigation-2026-07.md](audio-investigation-2026-07.md) and [audio-implementation-prompts.md](audio-implementation-prompts.md) |
 | Screenshots in the README | Needs a physical device; scaffold is in `screenshots/` |
 | Legacy launcher icon below API 26 | Either add PNG fallbacks or raise `minSdk` to 26 |
 | Dated result-field background | `@android:drawable/edit_text` is a Holo 9-patch; renders poorly in dark mode |

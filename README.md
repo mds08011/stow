@@ -47,6 +47,7 @@ _Captures pending — see [screenshots/README.md](screenshots/README.md) for the
 | [docs/release-signing.md](docs/release-signing.md) | One-time keystore and GitHub Secrets setup for releases |
 | [docs/roadmap.md](docs/roadmap.md) | Principles, what is planned, and what has been deliberately declined |
 | [docs/assessment-2026-07.md](docs/assessment-2026-07.md) | Full codebase review the current work plan came from |
+| [docs/audio-investigation-2026-07.md](docs/audio-investigation-2026-07.md) | Why dictations garbled in July 2026 — audio routing findings and fix plan |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ## Prerequisites
