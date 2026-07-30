@@ -4,7 +4,7 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
-## [Unreleased] — 2.5
+## [2.5] — 2026-07-30
 
 The largest release so far: user-editable polish presets, a set of correctness fixes around losing data, and a working release pipeline.
 

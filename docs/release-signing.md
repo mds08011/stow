@@ -54,6 +54,17 @@ Actions → **Build and Release APK** → *Run workflow* → enter the tag (e.g.
 
 The workflow decodes the keystore into the runner's temp directory, builds `assembleRelease`, runs `apksigner verify --print-certs` so a mis-signed APK fails the build rather than reaching users, publishes the Release, and deletes the keystore from the runner. If `STOW_KEYSTORE_BASE64` is missing the workflow fails immediately with a pointer back here, rather than silently shipping an unsignable build.
 
+## The signing identity
+
+The keystore was created on 2026-07-30 and first used for **v2.5**. Every release from then on must report this certificate — if a future release shows anything different, the wrong keystore was used and the APK will not install over an existing Stow.
+
+```
+DN:              CN=Malcolm Smith, OU=Unknown, O=Unknown, L=San Diego, ST=California, C=CA
+SHA-256 digest:  2d28da3d41bc1507e7cf60b9ae2deddc41ea70e03792cc94bc730a4d77c812ed
+```
+
+The release workflow prints this on every run via `apksigner verify --print-certs`; compare it against the value above when something looks off.
+
 ## The one unavoidable migration
 
 Any device running a build released **before** this change is signed with a throwaway key, so the first signed release cannot install over it.
