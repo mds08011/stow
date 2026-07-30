@@ -4,7 +4,7 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
-## [Unreleased] — 2.7
+## [2.7] — 2026-07-30
 
 Two behaviours ported from [Stow Web](https://github.com/mds08011/stow-web), which hit both problems first.
 
