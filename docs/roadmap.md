@@ -50,7 +50,11 @@ None of this is verifiable in CI. A general "record, transcribe, read the result
 
 ### 3. Tune the quality thresholds against real recordings
 
-`LOGPROB_LIMIT`, `NO_SPEECH_LIMIT` and `COMPRESSION_RATIO_LIMIT` in `TranscriptionHistory` are Whisper's own defaults, **not** validated against this user's audio. Once there are a few flagged and unflagged notes, check for false positives and negatives and adjust. They are named constants for exactly this reason.
+`LOGPROB_LIMIT`, `NO_SPEECH_LIMIT` and `COMPRESSION_RATIO_LIMIT` in `TranscriptionHistory` are Whisper's own defaults, **not** validated against this user's audio. Wait for a real note to be misflagged — or a bad one to slip through unflagged — rather than tuning speculatively. They are named constants for exactly this reason.
+
+### A note on audience
+
+Stow has one user: its author. That is not a placeholder for growth, and it should be used to sort this list. Work that makes dictation better in the field earns its place; work that exists to present the project to strangers generally does not. It is why screenshots are deprioritised below, why encrypted key storage was declined in favour of correcting the README, and why the thresholds above should be tuned against evidence instead of ahead of it.
 
 ## Planned / open
 
@@ -58,7 +62,7 @@ Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for t
 
 | Item | Notes |
 |---|---|
-| Screenshots in the README | Needs a physical device; scaffold is in `screenshots/` |
+| Screenshots in the README | **Deprioritised 2026-07-30** — documentation for prospective users, and there are none. Shot list ready in `screenshots/` if that changes |
 | Legacy launcher icon below API 26 | Either add PNG fallbacks or raise `minSdk` to 26 |
 | Dated result-field background | `@android:drawable/edit_text` is a Holo 9-patch; renders poorly in dark mode |
 | Background upload errors are silent | A failed upload while backgrounded shows nothing until you reopen — the sibling of the A-1 fix |
