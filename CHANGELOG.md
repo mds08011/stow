@@ -11,6 +11,8 @@ Versions before 2.5 are reconstructed from git history and are less detailed.
 
 ### Added
 - Every note records which microphone and sample rate produced it, shown in history detail and included in exports — so a bad transcription can be attributed rather than guessed at.
+- **Unreliable transcriptions are flagged.** Requests now use `verbose_json`, and the per-segment decoding statistics are checked against Whisper's own decode-failure thresholds. A note that looped, heard mostly silence, or decoded with low confidence is marked on the result screen and with ⚠ in history. Nothing is blocked or retried automatically — it just stops bad output from reading as fine.
+- The raw API response for the last 20 transcriptions is kept under `Documents/responses/`, so a bad one can be inspected or compared against another model.
 
 ### Known limitation
 - Stow records from the phone microphone only. A connected Bluetooth headset is **not** used for input; that work is tracked as A.4 in [docs/audio-implementation-prompts.md](docs/audio-implementation-prompts.md).

@@ -20,7 +20,6 @@ import android.content.pm.ServiceInfo
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -79,6 +78,10 @@ class RecordingService : Service() {
         /** getRoutedDevice() is briefly null right after start(); retry once. */
         private const val ROUTE_RETRY_DELAY_MILLIS = 150L
         private const val TAG = "StowAudio"
+
+        /** Raw verbose_json bodies, kept for troubleshooting a bad transcription. */
+        const val RESPONSES_DIR = "responses"
+        private const val MAX_STORED_RESPONSES = 20
 
         private const val RECORDING_NOTIFICATION_ID = 1
         const val RESULT_NOTIFICATION_ID = 2
@@ -403,6 +406,29 @@ class RecordingService : Service() {
             .apply()
     }
 
+    /**
+     * Keeps the raw API response beside the note so a bad transcription can be analysed
+     * later. Stored as a file rather than on the history entry, which is read on every
+     * history operation and must stay small.
+     */
+    private fun storeRawResponse(entryId: String, body: String) {
+        try {
+            val dir = File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS), RESPONSES_DIR)
+            if (!dir.exists() && !dir.mkdirs()) return
+            File(dir, "$entryId.json").writeText(body)
+
+            val stored = dir.listFiles { f -> f.name.endsWith(".json") } ?: return
+            if (stored.size > MAX_STORED_RESPONSES) {
+                stored.sortedBy { it.lastModified() }
+                    .take(stored.size - MAX_STORED_RESPONSES)
+                    .forEach { it.delete() }
+            }
+        } catch (e: Exception) {
+            // Diagnostics are never worth failing a transcription over.
+            e.printStackTrace()
+        }
+    }
+
     /** Drops stale recordings from the cache, keeping any that a retry still needs. */
     private fun cleanupAudioCache(keepPath: String?) {
         try {
@@ -481,6 +507,9 @@ class RecordingService : Service() {
             .addFormDataPart("model", "whisper-large-v3-turbo")
             .addFormDataPart("language", "en")
             .addFormDataPart("temperature", "0")
+            // Returns per-segment decoding statistics, the only objective signal that a
+            // transcription is a hallucination rather than a transcript.
+            .addFormDataPart("response_format", "verbose_json")
             .apply {
                 if (prompt.isNotEmpty()) {
                     addFormDataPart("prompt", prompt)
@@ -515,9 +544,16 @@ class RecordingService : Service() {
                 val responseBody = response.body?.string()
                 if (response.isSuccessful && responseBody != null) {
                     try {
-                        val jsonObject = JSONObject(responseBody)
-                        val text = jsonObject.getString("text")
-                        
+                        val parsed = TranscriptionResponse.parse(responseBody)
+                        if (parsed == null) {
+                            recordUploadFailure(file, durationSeconds)
+                            broadcastState(STATE_ERROR, "Error parsing response")
+                            stopForeground(true)
+                            stopSelf()
+                            return
+                        }
+                        val text = parsed.text
+
                         clearUploadFailure()
                         cleanupAudioCache(keepPath = null)
 
@@ -531,10 +567,21 @@ class RecordingService : Service() {
                             polishedText = null,
                             durationSeconds = durationSeconds,
                             routeLabel = routeLabel,
-                            routeSampleRate = routeSampleRate
+                            routeSampleRate = routeSampleRate,
+                            avgLogprob = parsed.avgLogprob,
+                            maxNoSpeechProb = parsed.maxNoSpeechProb,
+                            maxCompressionRatio = parsed.maxCompressionRatio
                         )
                         if (entry != null) {
                             prefs().edit().putString(PREF_PENDING_RESULT_ID, entry.id).apply()
+                            storeRawResponse(entry.id, responseBody)
+                            android.util.Log.i(
+                                TAG,
+                                "decode stats: avgLogprob=${parsed.avgLogprob} " +
+                                    "maxNoSpeech=${parsed.maxNoSpeechProb} " +
+                                    "maxCompression=${parsed.maxCompressionRatio} " +
+                                    "warning=${entry.qualityWarning()}"
+                            )
                         }
 
                         if (!deferClipboard) {

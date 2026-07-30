@@ -42,6 +42,7 @@ stateDiagram-v2
 | Resolving the microphone route | `RecordingService.resolveRoutedDevice` | `MediaRecorder.getRoutedDevice()` after `start()`, retried once after 150 ms; sent as `STATE_ROUTE` so `STATE_RECORDING` stays instant |
 | Recording → Uploading | `RecordingService.stopRecording` | Computes duration from active (non-paused) time only |
 | Upload + retry | `RecordingService.sendAudioToGroq` | One automatic retry on `IOException` before giving up |
+| Response parsing + quality metrics | `TranscriptionResponse.parse` | `verbose_json`; malformed statistics degrade to null rather than losing the transcript |
 | **Saving history** | `RecordingService` | Written the moment the transcription arrives — see below |
 | Polish | `MainActivity.startPolish` | Uses the selected preset; auto-polish skips the dialog |
 | Result screen, editing, clipboard | `MainActivity` | Updates the entry the service created; never creates a second one |
@@ -84,6 +85,7 @@ Shared preferences crossing the process boundary (all in `StowPrefs`):
 | Key | Written by | Read by |
 |---|---|---|
 | `pending_result_id` | service | activity (`onStart`) |
+| _(files)_ `Documents/responses/<entryId>.json` | service | manual troubleshooting; capped at 20, oldest pruned |
 | `ui_visible` | activity | service (whether to notify) |
 | `is_recording` | service | Quick Settings tile |
 | `failed_audio_path`, `failed_audio_duration` | service | activity (Retry button) |

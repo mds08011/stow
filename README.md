@@ -145,7 +145,15 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 * **POST_NOTIFICATIONS** is required for the recording notification, the pause/resume controls, and the "Transcription ready" hand-off. Denying it on Android 13+ blocks recording entirely.
 
 ### Transcription is garbled, repetitive, or contains phrases you never said
-This is Whisper hallucinating on low-quality audio, and the usual cause is microphone distance.
+Stow now flags this itself: when the transcription model reports poor decoding, the result screen shows **"Transcription may be unreliable"** with a reason, and the note is marked ⚠ in history. The reasons map to what went wrong:
+
+| Warning | Meaning |
+|---|---|
+| **repetitive output** | The model looped — a classic response to low-quality audio |
+| **mostly silence or noise** | It heard little actual speech; the mic was too far away or the environment too loud |
+| **low confidence** | It was unsure throughout, usually distance or background noise |
+
+The usual cause is microphone distance.
 
 * **Check the mic line** on the main screen or in the note's history detail. If it says *Phone mic*, the audio came from the handset — a connected Bluetooth headset is **not** used for recording.
 * Keep the phone out of a pocket and within arm's reach. A phone recording from a jacket pocket in a moving car produces exactly this failure.

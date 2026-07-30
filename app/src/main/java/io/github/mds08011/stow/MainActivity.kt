@@ -666,6 +666,20 @@ class MainActivity : AppCompatActivity() {
 
         // After history is settled — the toggle depends on the entry having both versions.
         updateVariantToggle()
+        showQualityWarningIfAny()
+    }
+
+    /**
+     * Whisper hallucinates confidently on poor audio, so bad output reads as fine. The
+     * decode statistics are the only signal that something went wrong; surface them, but
+     * never block or auto-retry.
+     */
+    private fun showQualityWarningIfAny() {
+        val warning = lastHistoryEntryId
+            ?.let { TranscriptionHistory.getById(this, it) }
+            ?.qualityWarning()
+            ?: return
+        setStatus("Transcription may be unreliable — $warning")
     }
 
     /**
@@ -910,6 +924,7 @@ class MainActivity : AppCompatActivity() {
                     copyToClipboard(displayText)
                 }
                 updateVariantToggle()
+                showQualityWarningIfAny()
                 Toast.makeText(
                     this,
                     if (chosePolished) "Polished text copied — edit if needed"
@@ -991,7 +1006,8 @@ class MainActivity : AppCompatActivity() {
             return entries.map { entry ->
                 val duration = entry.formattedDuration()?.let { " · $it" }.orEmpty()
                 val badge = if (!entry.polishedText.isNullOrBlank()) " · polished" else ""
-                "${entry.formattedTimestamp()}$duration$badge\n${entry.preview(90)}"
+                val warning = entry.qualityWarning()?.let { " · ⚠ $it" }.orEmpty()
+                "${entry.formattedTimestamp()}$duration$badge$warning\n${entry.preview(90)}"
             }
         }
 
@@ -1082,6 +1098,16 @@ class MainActivity : AppCompatActivity() {
                     text = route
                     textSize = 12f
                     setTextColor(0xFF888888.toInt())
+                }
+            )
+        }
+
+        entry.qualityWarning()?.let { warning ->
+            container.addView(
+                TextView(this).apply {
+                    text = "⚠ Transcription may be unreliable — $warning"
+                    textSize = 12f
+                    setPadding(0, gap / 2, 0, 0)
                 }
             )
         }

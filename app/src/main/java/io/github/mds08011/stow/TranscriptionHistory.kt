@@ -24,6 +24,11 @@ object TranscriptionHistory {
     private const val HISTORY_FILE_NAME = "stow_history.json"
     private const val LEGACY_LOG_FILE_NAME = "Stow_Log.txt"
 
+    // Whisper's own decode-failure thresholds (openai/whisper transcribe.py).
+    internal const val LOGPROB_LIMIT = -1.0
+    internal const val NO_SPEECH_LIMIT = 0.6
+    internal const val COMPRESSION_RATIO_LIMIT = 2.4
+
     @Volatile
     private var cache: List<Entry>? = null
 
@@ -40,8 +45,31 @@ object TranscriptionHistory {
         /** Microphone actually routed to, e.g. "Phone mic". Null for entries predating v2.6. */
         val routeLabel: String? = null,
         /** Capture sample rate requested for this recording, in Hz. */
-        val routeSampleRate: Int? = null
+        val routeSampleRate: Int? = null,
+        /** Decoding statistics from verbose_json; null for entries predating v2.6. */
+        val avgLogprob: Double? = null,
+        val maxNoSpeechProb: Double? = null,
+        val maxCompressionRatio: Double? = null
     ) {
+
+        /**
+         * A short reason this transcription is probably unreliable, or null.
+         *
+         * Thresholds are the ones OpenAI's own Whisper implementation uses to decide a decode
+         * has failed (`logprob_threshold`, `no_speech_threshold`, `compression_ratio_threshold`
+         * in `transcribe.py`). They are a starting point and will want tuning against real
+         * recordings. Checked worst-symptom-first.
+         */
+        fun qualityWarning(): String? = when {
+            maxCompressionRatio != null && maxCompressionRatio > COMPRESSION_RATIO_LIMIT ->
+                "repetitive output"
+            maxNoSpeechProb != null && maxNoSpeechProb > NO_SPEECH_LIMIT ->
+                "mostly silence or noise"
+            avgLogprob != null && avgLogprob < LOGPROB_LIMIT ->
+                "low confidence"
+            else -> null
+        }
+
 
         /** "Phone mic · 16 kHz", or null when the route was never recorded. */
         fun formattedRoute(): String? {
@@ -101,7 +129,10 @@ object TranscriptionHistory {
         durationSeconds: Int? = null,
         timestampMillis: Long = System.currentTimeMillis(),
         routeLabel: String? = null,
-        routeSampleRate: Int? = null
+        routeSampleRate: Int? = null,
+        avgLogprob: Double? = null,
+        maxNoSpeechProb: Double? = null,
+        maxCompressionRatio: Double? = null
     ): Entry? {
         val raw = rawText.trim()
         if (raw.isBlank()) return null
@@ -113,7 +144,10 @@ object TranscriptionHistory {
             rawText = raw,
             polishedText = polished,
             routeLabel = routeLabel?.takeIf { it.isNotBlank() },
-            routeSampleRate = routeSampleRate?.takeIf { it > 0 }
+            routeSampleRate = routeSampleRate?.takeIf { it > 0 },
+            avgLogprob = avgLogprob,
+            maxNoSpeechProb = maxNoSpeechProb,
+            maxCompressionRatio = maxCompressionRatio
         )
         val entries = loadEntries(context).toMutableList()
         entries.add(0, entry)
@@ -245,6 +279,13 @@ object TranscriptionHistory {
         return array.toString(2)
     }
 
+    /** Absent keys and NaN both mean "not measured", never 0.0. */
+    private fun optDoubleOrNull(obj: JSONObject, key: String): Double? {
+        if (obj.isNull(key)) return null
+        val value = obj.optDouble(key, Double.NaN)
+        return if (value.isNaN()) null else value
+    }
+
     private fun entryToJson(entry: Entry): JSONObject {
         return JSONObject().apply {
             put("id", entry.id)
@@ -263,6 +304,9 @@ object TranscriptionHistory {
             // Written only when known, so entries predating route capture stay compact.
             entry.routeLabel?.let { put("routeLabel", it) }
             entry.routeSampleRate?.let { put("routeSampleRate", it) }
+            entry.avgLogprob?.let { put("avgLogprob", it) }
+            entry.maxNoSpeechProb?.let { put("maxNoSpeechProb", it) }
+            entry.maxCompressionRatio?.let { put("maxCompressionRatio", it) }
         }
     }
 
@@ -288,7 +332,10 @@ object TranscriptionHistory {
                     rawText = obj.getString("rawText"),
                     polishedText = polished?.takeIf { it.isNotBlank() },
                     routeLabel = routeLabel?.takeIf { it.isNotBlank() },
-                    routeSampleRate = routeRate?.takeIf { it > 0 }
+                    routeSampleRate = routeRate?.takeIf { it > 0 },
+                    avgLogprob = optDoubleOrNull(obj, "avgLogprob"),
+                    maxNoSpeechProb = optDoubleOrNull(obj, "maxNoSpeechProb"),
+                    maxCompressionRatio = optDoubleOrNull(obj, "maxCompressionRatio")
                 )
             )
         }

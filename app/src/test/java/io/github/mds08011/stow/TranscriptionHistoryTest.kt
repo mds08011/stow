@@ -19,9 +19,13 @@ class TranscriptionHistoryTest {
         rawText: String = "raw text",
         polishedText: String? = "polished text",
         routeLabel: String? = null,
-        routeSampleRate: Int? = null
+        routeSampleRate: Int? = null,
+        avgLogprob: Double? = null,
+        maxNoSpeechProb: Double? = null,
+        maxCompressionRatio: Double? = null
     ) = TranscriptionHistory.Entry(
-        id, timestampMillis, durationSeconds, rawText, polishedText, routeLabel, routeSampleRate
+        id, timestampMillis, durationSeconds, rawText, polishedText, routeLabel, routeSampleRate,
+        avgLogprob, maxNoSpeechProb, maxCompressionRatio
     )
 
     // region JSON round-trip
@@ -137,6 +141,73 @@ class TranscriptionHistoryTest {
         assertTrue(withRoute.contains("[Mic] Bluetooth (SCO) · 8 kHz"))
 
         assertFalse(entry(polishedText = null).toExportBlock().contains("[Mic]"))
+    }
+
+    @Test
+    fun `round trip preserves decode statistics`() {
+        val original = listOf(
+            entry(id = "a", avgLogprob = -0.31, maxNoSpeechProb = 0.02, maxCompressionRatio = 1.4)
+        )
+
+        val restored = TranscriptionHistory.parseJson(TranscriptionHistory.serializeEntries(original))
+
+        assertEquals(original, restored)
+    }
+
+    @Test
+    fun `absent decode statistics stay null rather than becoming zero`() {
+        // Zero is a meaningful value for these metrics, so "missing" must not collapse to it.
+        val restored = TranscriptionHistory.parseJson(
+            """[{"id":"a","timestampMillis":1,"durationSeconds":null,
+                 "rawText":"x","polishedText":null}]"""
+        )
+
+        assertNull(restored[0].avgLogprob)
+        assertNull(restored[0].maxNoSpeechProb)
+        assertNull(restored[0].maxCompressionRatio)
+        assertNull(restored[0].qualityWarning())
+    }
+
+    // endregion
+
+    // region Quality warnings
+
+    @Test
+    fun `each threshold produces its own warning`() {
+        assertEquals(
+            "repetitive output",
+            entry(maxCompressionRatio = 2.5).qualityWarning()
+        )
+        assertEquals(
+            "mostly silence or noise",
+            entry(maxNoSpeechProb = 0.7).qualityWarning()
+        )
+        assertEquals(
+            "low confidence",
+            entry(avgLogprob = -1.2).qualityWarning()
+        )
+    }
+
+    @Test
+    fun `healthy statistics produce no warning`() {
+        assertNull(
+            entry(avgLogprob = -0.3, maxNoSpeechProb = 0.05, maxCompressionRatio = 1.4)
+                .qualityWarning()
+        )
+    }
+
+    @Test
+    fun `values exactly on the threshold do not warn`() {
+        assertNull(entry(maxCompressionRatio = 2.4).qualityWarning())
+        assertNull(entry(maxNoSpeechProb = 0.6).qualityWarning())
+        assertNull(entry(avgLogprob = -1.0).qualityWarning())
+    }
+
+    @Test
+    fun `repetition is reported ahead of other symptoms`() {
+        val allBad = entry(avgLogprob = -1.5, maxNoSpeechProb = 0.9, maxCompressionRatio = 3.0)
+
+        assertEquals("repetitive output", allBad.qualityWarning())
     }
 
     // endregion
