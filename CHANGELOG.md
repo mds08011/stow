@@ -4,6 +4,17 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
+## [Unreleased] — 2.7
+
+Two behaviours ported from [Stow Web](https://github.com/mds08011/stow-web), which hit both problems first.
+
+### Added
+- **Rate-limit countdown.** A 429 now disables **Retry last upload** and counts down until a retry could actually succeed, rather than letting you burn another slot immediately. Groq reports the wait both as a `Retry-After` header and as prose in the error body (`try again in 2m59.56s`) and neither is reliable alone, so Stow takes whichever is larger.
+- **Unfinished recordings are offered back.** The recording is checkpointed the moment it stops, *before* the first upload attempt. If Stow is killed mid-upload — the one window where audio existed on disk with nothing pointing at it — the next launch offers it with **Transcribe it** / **Discard**.
+
+### Changed
+- API errors now explain themselves (rejected key, file too large, rate limit, server error) instead of showing a status code and a JSON blob.
+
 ## [2.6] — 2026-07-30
 
 Diagnostics for the July transcription-quality investigation. Installs straight over v2.5 — no uninstall, history preserved.

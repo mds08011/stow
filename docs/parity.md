@@ -20,6 +20,11 @@ These must match byte-for-byte across both repos. They are checked mechanically 
 | Transcription model | `AudioTranscriber.MODEL_TURBO` | `MODELS.transcribe` |
 | Polish model | `TranscriptionPolisher.MODEL` | `MODELS.polish` |
 
+Two behaviours were ported **from** Stow Web in v2.7, and their logic should stay aligned:
+
+- **Retry-after parsing** — take the larger of the `Retry-After` header and the prose in the body (`try again in 2m59.56s`), round up, floor at 3 s, cap at 15 min. `RecordingService.retryAfterSeconds` ↔ `parseRetryAfter`.
+- **Crash recovery** — checkpoint the recording the moment it stops, before the first upload, and offer it back on next launch. Android uses SharedPreferences plus the retained audio file; Web uses IndexedDB.
+
 Also expected to stay aligned, but **not** yet machine-checked:
 
 - Jargon semantics — appended to the preset prompt, or substituted at `{{JARGON_LIST}}` if present; also sent as the Whisper biasing prompt.
@@ -41,9 +46,9 @@ Also expected to stay aligned, but **not** yet machine-checked:
 | Persistent notification with Stop | ✅ | ❌ | **Impossible on web** |
 | Quick Settings tile | ✅ | ❌ | **Android only** |
 | Pause / resume | ✅ | ❌ | **Not ported** |
-| Upload retry after failure | ✅ retry button | ✅ staged retry + countdown | **Both**, Web's is better |
-| Recording survives a crash | ❌ | ✅ IndexedDB | **Web only** — iPadOS evicts tabs aggressively |
-| Rate-limit countdown | ❌ | ✅ | **Web only**, worth porting |
+| Upload retry after failure | ✅ | ✅ staged retry | **Shared** — Web retries per stage, Android re-uploads |
+| Recording survives a crash | ✅ v2.7 | ✅ IndexedDB | **Shared** — ported from Web |
+| Rate-limit countdown | ✅ v2.7 | ✅ | **Shared** — ported from Web |
 | Route/mic reporting | ✅ v2.6 | ❌ | **Android only** — browsers do not expose this |
 | Transcription quality warnings | ✅ v2.6 | ❌ | **Portable** — Web would need `verbose_json` |
 | Retained audio + re-transcribe | ✅ v2.6 | ❌ | **Portable** |

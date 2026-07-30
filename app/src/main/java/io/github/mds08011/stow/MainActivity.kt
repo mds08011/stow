@@ -68,6 +68,9 @@ class MainActivity : AppCompatActivity() {
     /** Route reported by the recorder for the current/most recent take. */
     private var lastRouteLabel: String? = null
     private var lastRouteSampleRate: Int? = null
+
+    private val countdownHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var countdownRunnable: Runnable? = null
     private var lastRawTranscription: String = ""
     private var lastDurationSeconds: Int? = null
     private var lastHistoryEntryId: String? = null
@@ -274,19 +277,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnRetryUpload.setOnClickListener {
-            val intent = Intent(this, RecordingService::class.java).apply {
-                action = RecordingService.ACTION_RETRY_UPLOAD
-                putExtra(RecordingService.EXTRA_API_KEY, getApiKey())
-                putExtra(RecordingService.EXTRA_JARGON, getJargon())
-                putExtra(RecordingService.EXTRA_DEFER_CLIPBOARD, true)
+            // Defensive: the countdown disables the button, but never let a tap through
+            // early — an premature retry just consumes another rate-limit slot.
+            val retryAt = sharedPreferences.getLong(RecordingService.PREF_FAILED_RETRY_AT, 0L)
+            if (retryAt > System.currentTimeMillis()) {
+                tickRetryCountdown()
+                return@setOnClickListener
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            btnRetryUpload.visibility = View.GONE
-            setStatus("Retrying upload...")
+            dispatchRetryUpload()
         }
 
         restoreInstanceState(savedInstanceState)
@@ -362,11 +360,105 @@ class MainActivity : AppCompatActivity() {
         sharedPreferences.edit().putBoolean(RecordingService.PREF_UI_VISIBLE, true).apply()
         consumePendingResult()
         refreshRetryButton()
+        offerUnfinishedRecording()
+    }
+
+    /**
+     * Offers back a recording whose upload never reached a conclusion.
+     *
+     * A failed upload leaves the failed_* keys and surfaces as Retry. This covers the
+     * other case: the process being killed mid-upload, where no callback ever ran and the
+     * audio would otherwise sit in the cache with nothing pointing at it. The service
+     * checkpoints every recording the moment it stops, so that window is now recoverable.
+     * Ported from Stow Web, where iPadOS evicting a background tab made it routine.
+     */
+    private fun offerUnfinishedRecording() {
+        if (isRecording || isPolishing) return
+        // A completed-but-unclaimed result, or a clean failure, both take precedence.
+        if (sharedPreferences.getString(RecordingService.PREF_PENDING_RESULT_ID, null) != null) return
+        if (sharedPreferences.getString(RecordingService.PREF_FAILED_AUDIO_PATH, null) != null) return
+
+        val path = sharedPreferences.getString(RecordingService.PREF_PENDING_AUDIO_PATH, null) ?: return
+        val file = java.io.File(path)
+        if (!file.exists()) {
+            clearUnfinishedRecording()
+            return
+        }
+
+        val durationSeconds = sharedPreferences.getInt(RecordingService.PREF_PENDING_AUDIO_DURATION, 0)
+        val recordedAt = sharedPreferences.getLong(RecordingService.PREF_PENDING_AUDIO_AT, 0L)
+        val when_ = if (recordedAt > 0) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(recordedAt))
+        } else {
+            "an earlier session"
+        }
+        val length = if (durationSeconds >= 60) {
+            "${durationSeconds / 60}m ${durationSeconds % 60}s"
+        } else {
+            "${durationSeconds}s"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Unfinished recording")
+            .setMessage(
+                "A recording from $when_ ($length) was never transcribed — Stow was closed " +
+                    "or stopped before the upload finished.\n\nThe audio is still here."
+            )
+            .setPositiveButton("Transcribe it") { _, _ ->
+                clearUnfinishedRecording()
+                startRetryUpload(path, durationSeconds)
+            }
+            .setNegativeButton("Discard") { _, _ ->
+                clearUnfinishedRecording()
+                file.delete()
+                Toast.makeText(this, "Recording discarded", Toast.LENGTH_SHORT).show()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun clearUnfinishedRecording() {
+        sharedPreferences.edit()
+            .remove(RecordingService.PREF_PENDING_AUDIO_PATH)
+            .remove(RecordingService.PREF_PENDING_AUDIO_DURATION)
+            .remove(RecordingService.PREF_PENDING_AUDIO_AT)
+            .apply()
+    }
+
+    /**
+     * Hands a stored recording back to the service. The service reads the path from the
+     * failed_* keys, so a crash-recovered recording is promoted into that slot first.
+     */
+    private fun startRetryUpload(path: String, durationSeconds: Int) {
+        sharedPreferences.edit()
+            .putString(RecordingService.PREF_FAILED_AUDIO_PATH, path)
+            .putInt(RecordingService.PREF_FAILED_AUDIO_DURATION, durationSeconds)
+            .remove(RecordingService.PREF_FAILED_RETRY_AT)
+            .apply()
+        dispatchRetryUpload()
+    }
+
+    private fun dispatchRetryUpload() {
+        val intent = Intent(this, RecordingService::class.java).apply {
+            action = RecordingService.ACTION_RETRY_UPLOAD
+            putExtra(RecordingService.EXTRA_API_KEY, getApiKey())
+            putExtra(RecordingService.EXTRA_JARGON, getJargon())
+            putExtra(RecordingService.EXTRA_DEFER_CLIPBOARD, true)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        btnRetryUpload.visibility = View.GONE
+        stopRetryCountdown()
+        setStatus("Uploading and Transcribing...")
     }
 
     override fun onStop() {
         super.onStop()
         unregisterReceiver(receiver)
+        stopRetryCountdown()
         sharedPreferences.edit().putBoolean(RecordingService.PREF_UI_VISIBLE, false).apply()
     }
 
@@ -531,9 +623,54 @@ class MainActivity : AppCompatActivity() {
             sharedPreferences.edit()
                 .remove(RecordingService.PREF_FAILED_AUDIO_PATH)
                 .remove(RecordingService.PREF_FAILED_AUDIO_DURATION)
+                .remove(RecordingService.PREF_FAILED_RETRY_AT)
                 .apply()
         }
         btnRetryUpload.visibility = if (available && !isRecording) View.VISIBLE else View.GONE
+        if (btnRetryUpload.visibility == View.VISIBLE) {
+            tickRetryCountdown()
+        } else {
+            stopRetryCountdown()
+        }
+    }
+
+    /**
+     * Keeps the retry disabled until a retry could actually succeed.
+     *
+     * Groq reports the wait in a `Retry-After` header and again as prose in the error
+     * body; the service takes whichever is larger. Retrying before then just burns
+     * another rate-limit slot. Ported from Stow Web — see docs/parity.md.
+     */
+    private fun tickRetryCountdown() {
+        stopRetryCountdown()
+
+        val retryAt = sharedPreferences.getLong(RecordingService.PREF_FAILED_RETRY_AT, 0L)
+        val remainingMillis = retryAt - System.currentTimeMillis()
+        if (remainingMillis <= 0) {
+            btnRetryUpload.isEnabled = true
+            btnRetryUpload.text = "Retry last upload"
+            return
+        }
+
+        val seconds = ((remainingMillis + 999) / 1000).toInt()
+        btnRetryUpload.isEnabled = false
+        btnRetryUpload.text = "Retry in ${formatWait(seconds)}"
+
+        val runnable = Runnable { tickRetryCountdown() }
+        countdownRunnable = runnable
+        countdownHandler.postDelayed(runnable, 1000L)
+    }
+
+    private fun stopRetryCountdown() {
+        countdownRunnable?.let { countdownHandler.removeCallbacks(it) }
+        countdownRunnable = null
+    }
+
+    private fun formatWait(seconds: Int): String {
+        if (seconds < 60) return "${seconds}s"
+        val m = seconds / 60
+        val s = seconds % 60
+        return if (s > 0) "${m}m ${s}s" else "${m}m"
     }
 
     /**

@@ -62,6 +62,18 @@ class RecordingService : Service() {
         /** Set when an upload failed and the audio is still on disk, ready to retry. */
         const val PREF_FAILED_AUDIO_PATH = "failed_audio_path"
         const val PREF_FAILED_AUDIO_DURATION = "failed_audio_duration"
+        /** Epoch millis before which a retry would just burn another rate-limit slot. */
+        const val PREF_FAILED_RETRY_AT = "failed_retry_at"
+
+        /**
+         * Set the moment recording stops, before the first upload attempt. Survives the
+         * process being killed mid-upload, which is the one window where audio exists on
+         * disk but nothing in the app points at it. Cleared on success, and swapped for the
+         * failed_* keys on a clean failure, so the two are mutually exclusive.
+         */
+        const val PREF_PENDING_AUDIO_PATH = "pending_audio_path"
+        const val PREF_PENDING_AUDIO_DURATION = "pending_audio_duration"
+        const val PREF_PENDING_AUDIO_AT = "pending_audio_at"
         /** Read by the Quick Settings tile, which has no binding to this service. */
         const val PREF_IS_RECORDING = "is_recording"
 
@@ -70,6 +82,64 @@ class RecordingService : Service() {
         const val AUDIO_FILE_PREFIX = "audio_"
         const val AUDIO_FILE_SUFFIX = ".m4a"
         private const val RETRY_DELAY_MILLIS = 2000L
+
+        /** Longest wait worth counting down before telling the user to come back later. */
+        private const val MAX_RETRY_WAIT_SECONDS = 900L
+        private const val MIN_RETRY_WAIT_SECONDS = 3L
+        /** Fallbacks when the server says a retry is worth attempting but not when. */
+        private const val DEFAULT_RATE_LIMIT_WAIT_SECONDS = 12L
+        private const val DEFAULT_SERVER_ERROR_WAIT_SECONDS = 6L
+
+        /** Matches Groq's prose form: "try again in 7.66s" or "try again in 2m59.56s". */
+        private val RETRY_PROSE = Regex("""try again in (?:(\d+)m)?([\d.]+)s""", RegexOption.IGNORE_CASE)
+
+        /**
+         * How long until a retry could actually succeed.
+         *
+         * Groq answers this two ways and neither is reliable alone: a `Retry-After`
+         * header, and prose in the error body. Take whichever is larger, then round up —
+         * retrying a moment early just burns another slot. Ported from Stow Web, which
+         * hit this first; see docs/parity.md.
+         *
+         * Returns 0 when a retry is pointless (4xx that is not 429).
+         */
+        fun retryAfterSeconds(headerValue: String?, body: String?, status: Int): Long {
+            val retryable = status == 429 || status >= 500
+            if (!retryable) return 0
+
+            var wait = headerValue?.trim()?.toDoubleOrNull()?.takeIf { it > 0 } ?: 0.0
+
+            RETRY_PROSE.find(body.orEmpty())?.let { m ->
+                val minutes = m.groupValues[1].toLongOrNull() ?: 0L
+                val seconds = m.groupValues[2].toDoubleOrNull() ?: 0.0
+                wait = maxOf(wait, minutes * 60 + seconds)
+            }
+
+            if (wait <= 0.0) {
+                wait = if (status == 429) {
+                    DEFAULT_RATE_LIMIT_WAIT_SECONDS.toDouble()
+                } else {
+                    DEFAULT_SERVER_ERROR_WAIT_SECONDS.toDouble()
+                }
+            }
+            return Math.ceil(wait).toLong()
+                .coerceAtLeast(MIN_RETRY_WAIT_SECONDS)
+                .coerceAtMost(MAX_RETRY_WAIT_SECONDS)
+        }
+
+        /** Turns a non-2xx into something worth reading, rather than a status plus JSON. */
+        fun describeApiError(status: Int, body: String?): String = when {
+            status == 401 || status == 403 ->
+                "Your Groq API key was rejected. Check it in Settings."
+            status == 413 ->
+                "Recording is too large for Groq to accept (limit ~25 MB)."
+            status == 429 ->
+                "Groq rate limit reached. The audio was kept — retry when the timer runs out."
+            status >= 500 ->
+                "Groq had a server error ($status). The audio was kept; try again shortly."
+            else ->
+                "API error $status" + (body?.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty())
+        }
 
         /** Requested capture rate. Reported as-is; MediaRecorder may not honour it. */
         const val CAPTURE_SAMPLE_RATE = 16000
@@ -376,6 +446,8 @@ class RecordingService : Service() {
             broadcastState(STATE_LOADING)
 
             audioFile?.let {
+                // Checkpoint before the upload, not after it fails.
+                markRecordingPending(it, durationSeconds)
                 sendAudioToGroq(it, durationSeconds)
             }
         } catch (e: Exception) {
@@ -396,19 +468,54 @@ class RecordingService : Service() {
             .setOngoing(true)
             .build()
 
-    /** Remembers a failed upload so the audio can be re-sent instead of thrown away. */
-    private fun recordUploadFailure(file: File, durationSeconds: Int) {
+    /**
+     * Remembers a failed upload so the audio can be re-sent instead of thrown away.
+     * Clears the pending marker at the same time: a clean failure is a known state, and
+     * the two must not both be set or the UI would offer a retry and a resume at once.
+     */
+    private fun recordUploadFailure(file: File, durationSeconds: Int, retryAfterSeconds: Long = 0) {
         if (!file.exists()) return
-        prefs().edit()
+        val edit = prefs().edit()
             .putString(PREF_FAILED_AUDIO_PATH, file.absolutePath)
             .putInt(PREF_FAILED_AUDIO_DURATION, durationSeconds)
-            .apply()
+            .remove(PREF_PENDING_AUDIO_PATH)
+            .remove(PREF_PENDING_AUDIO_DURATION)
+            .remove(PREF_PENDING_AUDIO_AT)
+        if (retryAfterSeconds > 0) {
+            edit.putLong(PREF_FAILED_RETRY_AT, System.currentTimeMillis() + retryAfterSeconds * 1000)
+        } else {
+            edit.remove(PREF_FAILED_RETRY_AT)
+        }
+        edit.apply()
     }
 
     private fun clearUploadFailure() {
         prefs().edit()
             .remove(PREF_FAILED_AUDIO_PATH)
             .remove(PREF_FAILED_AUDIO_DURATION)
+            .remove(PREF_FAILED_RETRY_AT)
+            .apply()
+    }
+
+    /**
+     * Checkpoints a recording the instant it stops, before any upload is attempted.
+     * If the process is killed mid-upload — the one case a failure callback cannot cover —
+     * this is what lets the next launch offer the audio back instead of stranding it.
+     */
+    @Suppress("ApplySharedPref")
+    private fun markRecordingPending(file: File, durationSeconds: Int) {
+        prefs().edit()
+            .putString(PREF_PENDING_AUDIO_PATH, file.absolutePath)
+            .putInt(PREF_PENDING_AUDIO_DURATION, durationSeconds)
+            .putLong(PREF_PENDING_AUDIO_AT, System.currentTimeMillis())
+            .commit()   // synchronous: the process may not survive to flush an apply()
+    }
+
+    private fun clearRecordingPending() {
+        prefs().edit()
+            .remove(PREF_PENDING_AUDIO_PATH)
+            .remove(PREF_PENDING_AUDIO_DURATION)
+            .remove(PREF_PENDING_AUDIO_AT)
             .apply()
     }
 
@@ -564,6 +671,7 @@ class RecordingService : Service() {
                         val text = parsed.text
 
                         clearUploadFailure()
+                        clearRecordingPending()
                         // Keep this recording explicitly: it is the one the note points at.
                         cleanupAudioCache(keepPath = file.absolutePath)
 
@@ -613,9 +721,15 @@ class RecordingService : Service() {
                         broadcastState(STATE_ERROR, "Error parsing response")
                     }
                 } else {
-                    // Keep the audio: a 429 or a transient 5xx is worth retrying by hand.
-                    recordUploadFailure(file, durationSeconds)
-                    broadcastState(STATE_ERROR, "API Error: ${response.code}\n$responseBody")
+                    // Keep the audio: a 429 or a transient 5xx is worth retrying by hand,
+                    // but not before the server says a retry could succeed.
+                    val wait = retryAfterSeconds(
+                        response.header("retry-after"),
+                        responseBody,
+                        response.code
+                    )
+                    recordUploadFailure(file, durationSeconds, wait)
+                    broadcastState(STATE_ERROR, describeApiError(response.code, responseBody))
                 }
                 stopForeground(true)
                 stopSelf()
