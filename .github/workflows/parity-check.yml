@@ -1,0 +1,50 @@
+name: Cross-app parity check
+
+# Stow Web (mds08011/stow-web) duplicates this app's built-in polish prompts and a
+# handful of shared identifiers. Both apps use the same preset names, so divergence
+# is silent: nothing breaks, the same preset just quietly stops producing the same
+# output on the phone and the iPad.
+#
+# stow-web has run this check since it was created, but only from its own side — and
+# drift is far more likely to originate HERE, where nothing in that repo runs. On
+# 2026-07-30 exactly that happened: a package rename disarmed the check's file lookup
+# and a revised Clean prose prompt shipped, and neither was noticed from over there.
+# This workflow closes that gap by failing the Android PR that causes the drift.
+#
+# The checker itself deliberately lives in stow-web only. Copying it here would
+# recreate the duplication problem it exists to solve.
+
+on:
+  push:
+    paths:
+      - 'app/src/main/java/**/PolishPresets.kt'
+      - 'app/src/main/java/**/AudioTranscriber.kt'
+      - 'app/src/main/java/**/TranscriptionPolisher.kt'
+      - '.github/workflows/parity-check.yml'
+  pull_request:
+  schedule:
+    - cron: '43 6 * * 1'   # Mondays, 06:43 UTC — after stow-web's own run
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Stow (Android)
+        uses: actions/checkout@v6
+        with:
+          path: stow
+
+      - name: Checkout Stow Web
+        uses: actions/checkout@v6
+        with:
+          repository: mds08011/stow-web
+          path: stow-web
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compare shared prompts and identifiers
+        run: node stow-web/.github/check-prompt-drift.js "$GITHUB_WORKSPACE/stow"

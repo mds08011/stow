@@ -57,6 +57,12 @@ Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for t
 | Background upload errors are silent | A failed upload while backgrounded shows nothing until you reopen — the sibling of the A-1 fix |
 | Encrypted API key storage | Judged not worth the dependency; README wording corrected instead |
 
+### 4. Changing anything shared with Stow Web
+
+[Stow Web](https://github.com/mds08011/stow-web) duplicates the built-in polish prompts, the preset ids and names, the jargon placeholder, and both model ids. Change any of those here and the web app silently stops matching — same preset name, different output.
+
+CI catches it from both sides now, but the cheap move is to change both repos in the same sitting. See [parity.md](parity.md) for the full contract and for the July 2026 incident that prompted it.
+
 ## Deliberately declined
 
 Each of these has been considered and turned down. Reopening one means arguing against a principle above, not just proposing a feature.
