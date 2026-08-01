@@ -32,12 +32,15 @@ class TranscriptionPolisher(
      * @param enforceLengthGuard reject output that is wildly shorter or longer than the input.
      *   Only meaningful for light-cleanup presets — a preset that restructures the text
      *   (Task capture, say) legitimately changes length and must not set this.
+     * @param wrapOutput wrap the result in the preset's presentation tags. Applied here so
+     *   every caller — manual polish, auto-polish, re-polish — gets it without remembering.
      */
     fun polish(
         rawText: String,
         apiKey: String,
         systemPrompt: String,
         enforceLengthGuard: Boolean = false,
+        wrapOutput: Boolean = false,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -110,21 +113,17 @@ class TranscriptionPolisher(
                         return
                     }
                     val message = choices.getJSONObject(0).getJSONObject("message")
-                    val polished = message.getString("content").trim()
-                    if (polished.isEmpty()) {
-                        onError("Polish returned empty text")
-                        return
+                    when (
+                        val outcome = resolveOutput(
+                            content = message.getString("content"),
+                            rawText = rawText,
+                            enforceLengthGuard = enforceLengthGuard,
+                            wrapOutput = wrapOutput
+                        )
+                    ) {
+                        is Outcome.Success -> onSuccess(outcome.text)
+                        is Outcome.Failure -> onError(outcome.message)
                     }
-                    // "Light cleanup only" is otherwise enforced purely by a prompt an 8B
-                    // model can drift from; this makes it a property of the app.
-                    if (enforceLengthGuard && rawText.length > LENGTH_GUARD_MIN_CHARS) {
-                        val ratio = polished.length.toDouble() / rawText.length
-                        if (ratio < LENGTH_GUARD_MIN_RATIO || ratio > LENGTH_GUARD_MAX_RATIO) {
-                            onError("Polish changed the text too much — keeping raw")
-                            return
-                        }
-                    }
-                    onSuccess(polished)
                 } catch (e: Exception) {
                     onError("Error parsing polish response")
                 }
@@ -132,8 +131,42 @@ class TranscriptionPolisher(
         })
     }
 
+    internal sealed class Outcome {
+        data class Success(val text: String) : Outcome()
+        data class Failure(val message: String) : Outcome()
+    }
+
     companion object {
         const val MODEL = "llama-3.1-8b-instant"
+
+        /**
+         * Turns a raw completion into the text the app will show, or the reason it won't.
+         *
+         * The order matters and is the point of this function: strip leaked transport
+         * markers first so the length guard judges the real content, then guard, then
+         * apply the presentation wrapper — so the guard never measures the tags, and a
+         * leaked marker can never end up wrapped instead of removed.
+         */
+        internal fun resolveOutput(
+            content: String,
+            rawText: String,
+            enforceLengthGuard: Boolean,
+            wrapOutput: Boolean
+        ): Outcome {
+            val polished = PolishPresets.stripLeakedMarkers(content)
+            if (polished.isEmpty()) return Outcome.Failure("Polish returned empty text")
+            // "Light cleanup only" is otherwise enforced purely by a prompt an 8B model
+            // can drift from; this makes it a property of the app.
+            if (enforceLengthGuard && rawText.length > LENGTH_GUARD_MIN_CHARS) {
+                val ratio = polished.length.toDouble() / rawText.length
+                if (ratio < LENGTH_GUARD_MIN_RATIO || ratio > LENGTH_GUARD_MAX_RATIO) {
+                    return Outcome.Failure("Polish changed the text too much — keeping raw")
+                }
+            }
+            return Outcome.Success(
+                if (wrapOutput) PolishPresets.applyOutputWrapper(polished) else polished
+            )
+        }
 
         /** Below this length, normal filler removal swings the ratio too much to judge. */
         private const val LENGTH_GUARD_MIN_CHARS = 40

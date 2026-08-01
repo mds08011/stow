@@ -2,7 +2,7 @@
 
 This file is the source of truth for Stow’s optional post-transcription polish behavior.
 
-As of v2.5 polish is driven by **presets** — named, user-editable prompts. This document defines the request structure shared by all presets and the verbatim text of the two built-in defaults.
+As of v2.5 polish is driven by **presets** — named, user-editable prompts. This document defines the request structure shared by all presets and the verbatim text of the three built-in defaults.
 
 Implementation note: presets and the system-prompt assembly live in `PolishPresets.kt`; the HTTP call lives in `TranscriptionPolisher.kt`. Both must stay aligned with this document.
 
@@ -30,11 +30,34 @@ Parameters:
 
 > Before v2.5 the jargon list and the transcript were both interpolated into the *system* message and the user message was a fixed placeholder string.
 
+## Two sets of markers
+
+Two marker pairs exist and they are deliberately kept distinct — they share no text, so handling one can never disturb the other.
+
+| Markers | Side | Purpose |
+|---|---|---|
+| `<<<TRANSCRIPT` / `TRANSCRIPT>>>` | Input only | Transport and injection defense. They delimit the raw transcript in the user message and are never meant to appear in a result. |
+| `<transcript>` / `</transcript>` | Output only | Presentation wrapper, applied by the app when the selected preset sets `wrapOutput`. |
+
+**Leaked markers are always stripped.** `llama-3.1-8b-instant` sometimes echoes the transport markers back into its own output — unreliably, sometimes both, sometimes one, sometimes neither. Rather than fight that with prompt wording, `PolishPresets.stripLeakedMarkers` removes a leading `<<<TRANSCRIPT` and a trailing `TRANSCRIPT>>>` from every response, each end independently and only at the very start or end of the text. A marker in the *middle* is left alone: there it is dictated content, not a leaked delimiter.
+
+**Order of operations** on every response, in `TranscriptionPolisher.resolveOutput`:
+
+1. **Strip** leaked transport markers.
+2. **Guard** the length (when the preset asks for it), so the ratio measures real content rather than a response padded by echoed markers.
+3. **Wrap** in presentation tags (when the preset asks for it).
+
+The order is the point. Guarding before stripping would reject a polish that changed nothing — on a 45-character note the echoed markers alone add 28 characters, a 1.62 ratio, past the 1.5 ceiling. Wrapping before stripping would seal a leaked marker inside the tags where the strip step can no longer reach it.
+
 ## Length guard
 
 For presets that promise to stay close to the original, the app checks the result rather than trusting the prompt: if the output is under **0.4×** or over **1.5×** the input length, it is rejected and the raw text is kept (`"Polish changed the text too much — keeping raw"`). Inputs of 40 characters or fewer are exempt, since ordinary filler removal swings the ratio too much to judge on a short note.
 
 This applies to **Clean prose only**. Task capture legitimately grows — adding `## Job` headings and `- [ ]` prefixes to a short capture can easily exceed 1.5× — and custom presets are not guarded, since their intent is unknown. In code the flag is `enforceLengthGuard`, set from `preset.id == ID_CLEAN_PROSE`.
+
+Note that **Prompt capture is not guarded**, even though it uses Clean prose's prompt verbatim. The flag keys off the preset id, not the prompt text. Guarding it would be defensible; it is left off so this stays one rule keyed to one id rather than a growing list.
+
+The guard measures the text *after* leaked markers are stripped and *before* the presentation wrapper is applied, so neither set of markers can influence the ratio. See [Two sets of markers](#two-sets-of-markers).
 
 ## Jargon Dictionary injection
 
@@ -55,8 +78,10 @@ This means user-authored presets get jargon support automatically without having
 ## Preset management
 
 - Presets are stored as a JSON array in `SharedPreferences` (`StowPrefs` → `polish_presets`); the last-used preset id is in `selected_polish_preset`.
-- The two built-ins are seeded on first use and re-created if storage is cleared, so the list is never missing a default.
-- Built-ins may be renamed, edited, and **reset** to their shipped text; they cannot be deleted. Custom presets can be deleted.
+- Each preset carries a `wrapOutput` boolean alongside its name and prompt. It is absent from presets saved before wrapping existed; those parse as `false`, so an upgrade changes nothing about how they behave.
+- The three built-ins are seeded on first use and re-created if storage is cleared, so the list is never missing a default.
+- Built-ins may be renamed, edited, and **reset** to their shipped text; they cannot be deleted. Custom presets can be deleted. **Reset** restores the shipped `wrapOutput` value too, not just the name and prompt.
+- Output wrapping is editable on every preset, built-in or custom, via the **Wrap output in `<transcript>` tags** checkbox in the preset editor.
 - The selected preset is used by manual **Polish**, by auto-polish (which has no UI moment of its own), and by **Re-polish** in history.
 - Because presets are stored per-install, changing a built-in default in a future version does **not** reach anyone who already has it saved. They keep their copy until they use **Reset**.
 
@@ -154,3 +179,23 @@ Rules:
   end of the task line, e.g. "- [ ] Order check valves (by Friday)".
 - Preserve names, quantities, and job numbers exactly as spoken.
 ```
+
+---
+
+## Built-in preset: "Prompt capture"
+
+**Design goals.** Clean prose's output, delimited for pasting somewhere that wants the transcript marked off — a prompt for another tool, an issue body, a chat message.
+
+**Prompt (verbatim):** identical to Clean prose. In code it references the same `DEFAULT_CLEAN_PROSE_PROMPT` constant rather than duplicating the text, so the two can never drift apart.
+
+**What differs:** `wrapOutput = true`. The polished result is wrapped by the app:
+
+```
+<transcript>
+...polished text...
+</transcript>
+```
+
+The wrapping is deterministic and applied after the response comes back — the model is never asked for it and cannot get it wrong. It is applied once, at the point the text is returned to the app, so the wrapped form is what gets shown, saved to history, and copied.
+
+Because the wrapper is a distinct pair of markers from the transport delimiters, a leaked `<<<TRANSCRIPT` is stripped rather than sealed inside the tags. See [Two sets of markers](#two-sets-of-markers).

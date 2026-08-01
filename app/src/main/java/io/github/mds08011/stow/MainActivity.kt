@@ -922,6 +922,7 @@ class MainActivity : AppCompatActivity() {
             // Only Clean prose promises to stay close to the original length. Task capture
             // restructures into headings and checkboxes and legitimately grows.
             enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
+            wrapOutput = preset.wrapOutput,
             onSuccess = { polished ->
                 runOnUiThread {
                     isPolishing = false
@@ -1542,6 +1543,7 @@ class MainActivity : AppCompatActivity() {
             apiKey = apiKey,
             systemPrompt = PolishPresets.buildSystemPrompt(preset, getJargon().orEmpty()),
             enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
+            wrapOutput = preset.wrapOutput,
             onSuccess = { polished ->
                 runOnUiThread {
                     isPolishing = false
@@ -1644,6 +1646,15 @@ class MainActivity : AppCompatActivity() {
                 android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
         }
 
+        // Applied by the app after the response comes back, so it works the same on every
+        // preset regardless of what the prompt text asks the model for.
+        val wrapInput = CheckBox(this).apply {
+            text = "Wrap output in ${PolishPresets.OUTPUT_WRAP_START} tags"
+            isChecked = existing?.wrapOutput == true
+            textSize = 14f
+            setPadding(0, gap, 0, 0)
+        }
+
         val hint = TextView(this).apply {
             text = "The transcript is sent separately as the user message. Jargon Dictionary " +
                 "terms are appended automatically, or inserted at " +
@@ -1656,6 +1667,7 @@ class MainActivity : AppCompatActivity() {
         container.addView(nameInput)
         container.addView(promptLabel)
         container.addView(promptInput)
+        container.addView(wrapInput)
         container.addView(hint)
 
         val scrollView = ScrollView(this).apply { addView(container) }
@@ -1686,8 +1698,9 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Name and prompt are both required", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+            val wrapOutput = wrapInput.isChecked
             if (existing == null) {
-                val created = PolishPresets.add(this, name, prompt)
+                val created = PolishPresets.add(this, name, prompt, wrapOutput)
                 if (created == null) {
                     Toast.makeText(this, "Could not save preset", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
@@ -1695,7 +1708,10 @@ class MainActivity : AppCompatActivity() {
                 PolishPresets.setSelected(this, created.id)
                 Toast.makeText(this, "Preset saved and selected", Toast.LENGTH_SHORT).show()
             } else {
-                PolishPresets.update(this, existing.copy(name = name, prompt = prompt))
+                PolishPresets.update(
+                    this,
+                    existing.copy(name = name, prompt = prompt, wrapOutput = wrapOutput)
+                )
                 Toast.makeText(this, "Preset saved", Toast.LENGTH_SHORT).show()
             }
             updatePresetButton()
@@ -1707,7 +1723,7 @@ class MainActivity : AppCompatActivity() {
     private fun confirmResetPreset(preset: PolishPresets.Preset) {
         AlertDialog.Builder(this)
             .setTitle("Reset \"${preset.name}\"?")
-            .setMessage("Restores the built-in name and prompt text. Your edits to this preset are lost.")
+            .setMessage("Restores the built-in name, prompt text, and output wrapping. Your edits to this preset are lost.")
             .setPositiveButton("Reset") { _, _ ->
                 PolishPresets.resetToDefault(this, preset.id)
                 updatePresetButton()
