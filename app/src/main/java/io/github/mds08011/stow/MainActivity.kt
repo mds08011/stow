@@ -581,6 +581,17 @@ class MainActivity : AppCompatActivity() {
         sharedPreferences.getBoolean(PREF_AUTO_POLISH, false)
 
     /**
+     * The chat model polish requests use. Editable in Settings so a Groq deprecation —
+     * they retire chat models on a schedule the app has no say in — is a field to edit
+     * rather than a release to cut. Blank means "use the shipped default".
+     */
+    private fun getPolishModel(): String =
+        sharedPreferences.getString(PREF_POLISH_MODEL, null)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: TranscriptionPolisher.MODEL
+
+    /**
      * Status messages used to be written into the transcript field, which forced this to
      * blacklist their exact wording. They now live in their own view, so the field only ever
      * holds transcript text and a blank check is enough.
@@ -919,6 +930,7 @@ class MainActivity : AppCompatActivity() {
             rawText = rawText,
             apiKey = apiKey,
             systemPrompt = systemPrompt,
+            model = getPolishModel(),
             // Only Clean prose promises to stay close to the original length. Task capture
             // restructures into headings and checkboxes and legitimately grows.
             enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
@@ -946,26 +958,38 @@ class MainActivity : AppCompatActivity() {
                     isPolishing = false
                     btnPolish.isEnabled = rawText.isNotBlank()
                     if (autoTriggered) {
+                        // Auto-polish has no dialog of its own, so the raw result screen is
+                        // what the user lands on either way; the failure is explained over it.
                         showEditableResult(
                             displayText = rawText,
                             rawText = rawText,
                             polishedText = null,
                             saveHistory = true
                         )
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Polish failed — raw transcription copied",
-                            Toast.LENGTH_LONG
-                        ).show()
                     } else {
                         // The transcript field was never overwritten by status text, so
                         // there is nothing to restore — just clear the spinner message.
                         setStatus("")
-                        Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
                     }
+                    showPolishFailure(error)
                 }
             }
         )
+    }
+
+    /**
+     * Polish failures get a dialog rather than a toast. A toast saying the model was
+     * decommissioned scrolls away in three seconds, and the fix — editing the model id in
+     * Settings — is something the message has to spell out and the user has to act on.
+     * The raw transcript is always what stays on screen; polish never replaces it on failure.
+     */
+    private fun showPolishFailure(error: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Polish failed — showing the raw transcription")
+            .setMessage(error)
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Settings…") { _, _ -> showApiKeyDialog() }
+            .show()
     }
 
     private fun showPolishResultDialog(rawText: String, polishedText: String, presetName: String) {
@@ -1541,6 +1565,7 @@ class MainActivity : AppCompatActivity() {
             rawText = entry.rawText,
             apiKey = apiKey,
             systemPrompt = PolishPresets.buildSystemPrompt(preset, getJargon().orEmpty()),
+            model = getPolishModel(),
             enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
             onSuccess = { polished ->
                 runOnUiThread {
@@ -1554,8 +1579,10 @@ class MainActivity : AppCompatActivity() {
             onError = { error ->
                 runOnUiThread {
                     isPolishing = false
-                    Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
+                    // The entry is untouched — an existing polish is not overwritten by a
+                    // failed re-polish, and the raw text was never at risk.
                     showHistoryDetail(entry)
+                    showPolishFailure(error)
                 }
             }
         )
@@ -1769,6 +1796,30 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(presetsButton)
 
+        val polishModelLabel = TextView(this).apply {
+            text = "Polish model"
+            setPadding(0, 24, 0, 0)
+        }
+        layout.addView(polishModelLabel)
+
+        val polishModelInput = EditText(this).apply {
+            setText(getPolishModel())
+            hint = TranscriptionPolisher.MODEL
+            setSingleLine()
+        }
+        layout.addView(polishModelInput)
+
+        // Groq retires chat models on its own schedule; this field is what keeps that from
+        // being an app update. Transcription is not affected and has no field here.
+        val polishModelHint = TextView(this).apply {
+            text = "The Groq chat model used for polish. Default is ${TranscriptionPolisher.MODEL}. " +
+                "If Groq retires it, put a current id from console.groq.com/docs/models here — " +
+                "leave it empty to go back to the default. Transcription is unaffected."
+            textSize = 12f
+            setPadding(8, 4, 8, 0)
+        }
+        layout.addView(polishModelHint)
+
         // Recent recordings are kept on device for troubleshooting; be honest about the cost.
         val audioButton = Button(this).apply {
             text = clearAudioButtonLabel()
@@ -1792,13 +1843,21 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(audioHint)
 
-        builder.setView(layout)
+        // Enough fields now that a short screen would clip the buttons.
+        builder.setView(ScrollView(this).apply { addView(layout) })
 
         builder.setPositiveButton("Save") { dialog, _ ->
             val key = apiKeyInput.text.toString().trim()
+            // Store blank rather than the default string, so a future default change
+            // reaches anyone who never overrode it.
+            val polishModel = polishModelInput.text.toString().trim()
             sharedPreferences.edit()
                 .putString("api_key", key)
                 .putBoolean(PREF_AUTO_POLISH, autoPolishCheckbox.isChecked)
+                .putString(
+                    PREF_POLISH_MODEL,
+                    if (polishModel == TranscriptionPolisher.MODEL) "" else polishModel
+                )
                 .apply()
             dialog.dismiss()
         }
@@ -2031,6 +2090,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PREF_AUTO_POLISH = "auto_polish"
+        private const val PREF_POLISH_MODEL = "polish_model"
         private const val PREF_ASKED_BATTERY_OPT = "asked_battery_opt"
         private const val SEARCH_DEBOUNCE_MILLIS = 250L
 

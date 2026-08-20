@@ -72,7 +72,7 @@ class PolishPresetsTest {
     fun `clean prose default keeps its data-preservation rules`() {
         val prompt = PolishPresets.DEFAULT_CLEAN_PROSE_PROMPT
 
-        // Guards against a future edit quietly dropping the rules that stop an 8B model
+        // Guards against a future edit quietly dropping the rules that stop a small model
         // rewriting "eight inch" as "8-inch" in notes that end up in a report.
         assertTrue(prompt.contains("Do NOT convert, round, reformat, or normalise numbers"))
         assertTrue(prompt.contains("Always remove: um, uh, er, ah, mm, hmm."))

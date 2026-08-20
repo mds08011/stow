@@ -23,10 +23,27 @@ That line is appended by the app to *every* preset, including user-written ones 
 
 Parameters:
 
-- Model: `llama-3.1-8b-instant` (free-tier friendly)
+- Model: **user-editable**, defaulting to `openai/gpt-oss-20b` (free-tier friendly). See [The polish model is a setting](#the-polish-model-is-a-setting) below.
 - `temperature`: `0.2`
-- `max_tokens`: `max(256, (rawText.length / 3) * 2)` — roughly two tokens of headroom per token of input, enough for a preset that restructures while still capping a runaway generation
+- `max_tokens`: `max(1024, (rawText.length / 3) * 2)` — roughly two tokens of headroom per token of input, enough for a preset that restructures while still capping a runaway generation. The floor was 256 until v2.8; a reasoning model spends part of the budget thinking before it writes anything, and a short note could exhaust 256 tokens without producing a word.
+- `reasoning_effort`: `"low"` and `include_reasoning`: `false` — **only when the model id starts with `openai/gpt-oss`**. Groq returns reasoning in a separate `reasoning` field, so it never reaches the note either way, but it is still generated and still spends the token budget. Other Groq chat models reject these parameters outright, which is why they are conditional rather than always sent.
 - Timeouts (OkHttp): 30 s connect, 60 s read, 30 s write
+
+## The polish model is a setting
+
+`Settings → Polish model` is a plain text field, prefilled with the default. Whatever is in it is what `model` is set to; empty means the shipped default.
+
+It exists because this is the second time Groq's schedule has forced the question. Stow used `llama-3.1-8b-instant` from the first polish release until v2.8; Groq deprecated its Llama chat models on **2026-06-17** and stopped serving them in **August 2026**, at which point every polish request began returning:
+
+```json
+{"error":{"message":"The model `llama-3.1-8b-instant` has been decommissioned and is no longer supported. ...","type":"invalid_request_error","code":"model_decommissioned"}}
+```
+
+`openai/gpt-oss-20b` is Groq's own recommended replacement for that model. The next deprecation should be a field to edit, not a release to cut — which is the whole reason the field is a free-form string and not a dropdown. A dropdown is a list that goes stale exactly when it matters.
+
+Transcription is unaffected and has no such field: Whisper was not part of the chat deprecations, and `AudioTranscriber` keeps its own constants.
+
+> **Note on the default.** `TranscriptionPolisher.MODEL` is the shipped default *and* half of a cross-repo contract — Stow Web pins the same id as `MODELS.polish`. Changing it means changing both repos; see [parity.md](parity.md).
 
 > Before v2.5 the jargon list and the transcript were both interpolated into the *system* message and the user message was a fixed placeholder string.
 
@@ -69,11 +86,53 @@ Either way both versions are stored on the history entry, so choosing raw never 
 
 ## Failure behaviour
 
-All failures fall back to the raw transcript:
+**Polish either returns text that passed every check, or it fails loudly and the raw transcript stands.** There is no middle state — no partial, truncated, or empty polish is ever shown as a result.
 
-- Network error, non-2xx response, unparseable body, empty content, a preset with a blank prompt, or a tripped length guard → `onError`.
-- Auto-polish failure: the raw transcript is shown on the editable result screen and copied, with a "Polish failed — raw transcription copied" toast.
-- Manual polish failure: the previous text is restored and the error is shown as a toast.
+These all route to `onError`:
+
+| Condition | Why it is a failure and not a result |
+|---|---|
+| Network error, or a non-2xx response | Nothing was returned |
+| An `error` envelope on a 200 | A 200 can still carry an error; treating it as "no content" hid the reason |
+| Missing or empty `choices` / `message` / `content` | Nothing to show |
+| `finish_reason == "length"` | The generation hit the token cap and stopped mid-sentence. It looks like ordinary output, so nothing downstream would catch it — this is the truncation case a reasoning model makes likely |
+| A tripped length guard | See above; Clean prose only |
+| A blank preset prompt, or a blank model id | Misconfiguration, caught before the request |
+| An unparseable body | Nothing trustworthy to read |
+
+Since v2.8 the error is shown in a **dialog**, not a toast, titled *"Polish failed — showing the raw transcription"*, with a **Settings…** button. A toast saying the model was decommissioned scrolls away in three seconds, and the fix is a settings change the message has to spell out and the user has to act on.
+
+The message itself explains the status rather than dumping JSON (`TranscriptionPolisher.describePolishError`, mirroring `RecordingService.describeApiError` on the transcription side):
+
+- **Rejected model** — a 404, a `model_decommissioned` / `model_not_found` code, or a message saying decommissioned/does not exist → names the model that was actually sent, quotes Groq's own message, and points at Settings → Polish model.
+- **401 / 403** → the key was rejected.
+- **429** → rate limited, not polished.
+- **5xx** → Groq server error.
+- **Anything else** → the status plus Groq's `error.message`, falling back to the raw body only when it would say something (an empty `{}` is not appended).
+
+What the user is left with in each case:
+
+- **Auto-polish:** the raw transcript on the editable result screen, copied, with the failure dialog over it.
+- **Manual polish:** the raw transcript untouched in the field, spinner cleared, failure dialog.
+- **Re-polish from history:** the entry is not modified — an existing polish is never overwritten by a failed re-polish — and the detail view reopens under the dialog.
+
+## Prompt review against the v2.8 model (2026-08-19)
+
+Both built-in prompts were re-read when the default model changed, on the assumption that a prompt tuned for one model is not automatically right for another. **Neither prompt needed changing**, and both are unchanged in v2.8 — which also keeps the Stow Web parity check green. What was checked:
+
+- **No Llama-specific syntax.** Neither prompt contains `[INST]`, `<<SYS>>`, `<|start_header_id|>`, or any other chat template scaffolding. Both are plain instructional English in a `system` message, which is what every OpenAI-compatible chat model expects. Nothing here was ever Llama-shaped.
+- **Nothing tuned to a specific model's quirks.** The rules exist for reasons that hold for any model — rule 8 (don't reformat numbers) and rule 1 (conditional filler words) were written against observed *behaviour*, not against Llama specifically. A stronger model needing them less is not a reason to remove them; they are the app's contract with the user's data.
+- **"Output ONLY the cleaned plain text"** (Clean prose) and **"Output Markdown only. No preamble, no commentary, no code fences"** (Task capture) matter *more* now, not less. A reasoning model is more inclined to preface an answer. Both prompts already say this explicitly, in the last and third lines respectively.
+- **The length guard still applies** and is unchanged at 0.4×–1.5×.
+
+Only the wording of the surrounding *documentation* was Llama-specific: this file and `PolishPresetsTest` both justified a rule by what "an 8B model" would do. Now "a small model" — the reasoning is about capability, not about Llama.
+
+Two things were deliberately **not** changed, and are worth knowing about:
+
+- **`temperature` stays at `0.2`.** OpenAI's own guidance for gpt-oss suggests `1.0`, but that is general-purpose advice; this is a near-deterministic cleanup task where drift is the failure mode the length guard exists to catch. Left alone as the more conservative option — if polish starts feeling stilted or repetitive, this is the first dial to try.
+- **The prompts are not re-tuned for a reasoning model.** They tell the model what to output, not how to think, which is the right shape for one. `reasoning_effort` is set to `low` in the request instead.
+
+> Changing a built-in prompt is a cross-repo change; see [parity.md](parity.md). Existing installs keep their saved copy of a built-in until they use **Reset** (see [Preset management](#preset-management)), so a prompt fix does not reach anyone automatically.
 
 ---
 
@@ -114,7 +173,7 @@ Your job is light cleanup only. Follow these rules strictly and in order:
 Output ONLY the cleaned plain text. No explanations, no quotes, no additional commentary.
 ```
 
-Rules 1 and 8 were tightened in v2.5. Rule 1's old form put `(when used as filler)` next to only two of the nine conditional words, which read as licence to strip `so`, `like` and `kind of` unconditionally — all of which carry meaning in engineering speech. Rule 8 is new: without it an 8B model will happily render "eight inch DI main" as "8-inch DI main" and "pH seven point two" as "pH 7.2", which is silent data mutation in notes that may end up in a report or an RFI.
+Rules 1 and 8 were tightened in v2.5. Rule 1's old form put `(when used as filler)` next to only two of the nine conditional words, which read as licence to strip `so`, `like` and `kind of` unconditionally — all of which carry meaning in engineering speech. Rule 8 is new: without it a small model will happily render "eight inch DI main" as "8-inch DI main" and "pH seven point two" as "pH 7.2", which is silent data mutation in notes that may end up in a report or an RFI.
 
 ---
 

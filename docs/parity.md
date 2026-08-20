@@ -20,12 +20,18 @@ These must match byte-for-byte across both repos. They are checked mechanically 
 | Transcription model | `AudioTranscriber.MODEL_TURBO` | `MODELS.transcribe` |
 | Polish model | `TranscriptionPolisher.MODEL` | `MODELS.polish` |
 
+> ⚠️ **Open divergence as of v2.8 (2026-08-19).** Android moved the polish model from `llama-3.1-8b-instant` to `openai/gpt-oss-20b`; Stow Web has not been updated. **The parity check will fail until it is.** This is not a false alarm — Groq stopped serving the Llama chat models in August 2026, so Stow Web's polish is broken in exactly the way Android's was, and the fix there is the same one-line change plus the reasoning parameters described in [polishing-prompt.md](polishing-prompt.md#the-polish-model-is-a-setting). Whisper is unaffected on both sides.
+>
+> Note that on Android the model is now a **user-editable setting** with `TranscriptionPolisher.MODEL` as its default. The contract is over the *default*, which is what the checker reads; a user who overrides it on one device has simply diverged from the web app on purpose, and no check can or should catch that.
+
 Two behaviours were ported **from** Stow Web in v2.7, and their logic should stay aligned:
 
 - **Retry-after parsing** — take the larger of the `Retry-After` header and the prose in the body (`try again in 2m59.56s`), round up, floor at 3 s, cap at 15 min. `RecordingService.retryAfterSeconds` ↔ `parseRetryAfter`.
 - **Crash recovery** — checkpoint the recording the moment it stops, before the first upload, and offer it back on next launch. Android uses SharedPreferences plus the retained audio file; Web uses IndexedDB.
 
 Also expected to stay aligned, but **not** yet machine-checked:
+
+- Polish failure behaviour — a failed polish never yields partial or empty text; it reports why and leaves the raw transcript standing. Android v2.8 also rejects a `finish_reason == "length"` truncation, which Web should adopt.
 
 - Jargon semantics — appended to the preset prompt, or substituted at `{{JARGON_LIST}}` if present; also sent as the Whisper biasing prompt.
 - Daily usage wording and the 8 h / 28 800 s free-tier figure, so the two meters read interchangeably.

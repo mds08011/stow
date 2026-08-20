@@ -32,7 +32,7 @@ A.4 is therefore **declined unless a concrete hands-free need appears**, e.g. "I
 
 **If it is ever revisited:** [audio-implementation-prompts.md](audio-implementation-prompts.md) § A.4 is written and ready. It defaults to the phone mic behind an explicit setting, so it is opt-in and reversible. One useful property — the experiment is self-measuring: A.1 already reports route and sample rate per note, and A.3 can re-transcribe the same audio, so the same content can be A/B'd both ways and judged on evidence.
 
-### 2. Device testing owed from v2.5, v2.6 and v2.7
+### 2. Device testing owed from v2.5, v2.6, v2.7 and v2.8
 
 None of this is verifiable in CI. A general "record, transcribe, read the result" pass was done on v2.7 on 2026-07-30 and looked good, which covers the happy path; the items below need specific circumstances that ordinary use will not produce.
 
@@ -45,6 +45,9 @@ None of this is verifiable in CI. A general "record, transcribe, read the result
 | Airplane-mode → **Retry last upload** | Recovers a note instead of losing it | ⬜ |
 | Kill Stow mid-upload → relaunch offers the recording back | v2.7 crash recovery | ⬜ |
 | A real 429 → Retry counts down and stays disabled | v2.7 rate-limit handling | ⬜ |
+| Polish a real note on `openai/gpt-oss-20b` | v2.8's whole point. Confirm the output still reads like Clean prose and does not arrive truncated — a reasoning model spends part of the token budget thinking | ⬜ |
+| Task capture on the new model | It restructures rather than cleans, so it exercises the longer generation path | ⬜ |
+| Put a junk id in **Settings → Polish model** | The failure dialog should name the junk id and the raw transcript should survive | ⬜ |
 | Quick Settings tile start/stop | Never exercised on a device | ⬜ |
 | Launcher icon against other home-screen icons | Geometry is correct; visual weight is a judgement call | ⬜ |
 
@@ -73,6 +76,8 @@ Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for t
 [Stow Web](https://github.com/mds08011/stow-web) duplicates the built-in polish prompts, the preset ids and names, the jargon placeholder, and both model ids. Change any of those here and the web app silently stops matching — same preset name, different output.
 
 CI catches it from both sides now, but the cheap move is to change both repos in the same sitting. See [parity.md](parity.md) for the full contract and for the July 2026 incident that prompted it.
+
+> **Outstanding as of v2.8:** the polish model moved to `openai/gpt-oss-20b` here and **not** in Stow Web, so the parity check is failing on purpose. Stow Web is not merely divergent — its polish is broken, since Groq stopped serving `llama-3.1-8b-instant` in August 2026. Fixing it there clears the check and the bug together.
 
 ## Deliberately declined
 
