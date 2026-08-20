@@ -4,6 +4,26 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
+## [2.8] — 2026-08-20
+
+Groq retired the Llama chat models Stow used for polish. This release moves to a current model and makes sure the next retirement is a settings change rather than a release.
+
+### Fixed
+- **Polish works again.** Groq deprecated its Llama chat models on 2026-06-17 and stopped serving them in August 2026, so every polish request had started failing with `The model llama-3.1-8b-instant has been decommissioned`. The default polish model is now **`openai/gpt-oss-20b`** — Groq's own recommended replacement for the model Stow was using. Transcription was never affected: Whisper is not part of the chat deprecations and is unchanged.
+
+### Added
+- **The polish model is a setting.** **Settings → Polish model** is a plain text field prefilled with the default; empty restores it. When Groq next retires a model, paste a current id from `console.groq.com/docs/models` and carry on. Deliberately a free-form string and not a dropdown — a list of models is a list that goes stale exactly when you need it.
+
+### Changed
+- **A failed polish now explains itself and never degrades quietly.** Previously a decommissioned model produced a three-second toast containing a status code and a JSON blob. Now failures raise a dialog — *"Polish failed — showing the raw transcription"* — that names the model actually sent, quotes Groq's own message, and offers a **Settings…** button. Rejected keys, rate limits and server errors get the same treatment, matching what transcription errors have done since v2.7.
+- **Truncated polish output is treated as a failure, not a result.** A generation that stops on the token cap comes back as ordinary-looking text that ends mid-sentence, and nothing downstream would have caught it. Stow now rejects it and keeps the raw transcript, along with an error envelope arriving on a `200`, or a missing message body.
+- **The `max_tokens` floor rose from 256 to 1024.** `openai/gpt-oss-20b` is a reasoning model: it spends tokens thinking before writing, out of the same budget. On a short note the old floor could be spent entirely on reasoning, arriving as an empty or truncated polish. Requests to `openai/gpt-oss` models also now set `reasoning_effort: low` and `include_reasoning: false` — the reasoning is not wanted, and on a field connection not worth downloading. Both are omitted for any other model, since they would be rejected.
+- Settings scrolls, so the buttons stay reachable on a short screen.
+
+### Notes
+- Both built-in polish prompts were re-read against the new model and **neither needed changing** — nothing in them was ever Llama-specific. See the review in [docs/polishing-prompt.md](docs/polishing-prompt.md). Because presets are stored per-install, your saved copies are untouched either way.
+- **[Stow Web](https://github.com/mds08011/stow-web) has the same broken model and has not been updated**, so the cross-app parity check will fail until it is. See [docs/parity.md](docs/parity.md).
+
 ## [2.7] — 2026-07-30
 
 Two behaviours ported from [Stow Web](https://github.com/mds08011/stow-web), which hit both problems first.
