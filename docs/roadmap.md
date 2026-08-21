@@ -77,7 +77,9 @@ Roughly in value order. See [assessment-2026-07.md](assessment-2026-07.md) for t
 
 CI catches it from both sides now, but the cheap move is to change both repos in the same sitting. See [parity.md](parity.md) for the full contract and for the July 2026 incident that prompted it.
 
-> **Outstanding as of v2.8:** the polish model moved to `openai/gpt-oss-20b` here and **not** in Stow Web, so the parity check is failing on purpose. Stow Web is not merely divergent — its polish is broken, since Groq stopped serving `llama-3.1-8b-instant` in August 2026. Fixing it there clears the check and the bug together.
+> **Done in v2.8:** the polish model moved to `openai/gpt-oss-20b` in both repos in the same sitting, which is the cheap move described above — the check went red on the Android push and green once Web followed the same day.
+>
+> Two **pre-existing** divergences surfaced while doing it, both Android-only and neither machine-checked: the transport note and transcript markers that defend against prompt injection, and the Clean prose length guard. Recorded in [parity.md](parity.md); the transport note is the one worth porting.
 
 ## Deliberately declined
 

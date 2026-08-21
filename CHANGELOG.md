@@ -22,7 +22,7 @@ Groq retired the Llama chat models Stow used for polish. This release moves to a
 
 ### Notes
 - Both built-in polish prompts were re-read against the new model and **neither needed changing** — nothing in them was ever Llama-specific. See the review in [docs/polishing-prompt.md](docs/polishing-prompt.md). Because presets are stored per-install, your saved copies are untouched either way.
-- **[Stow Web](https://github.com/mds08011/stow-web) has the same broken model and has not been updated**, so the cross-app parity check will fail until it is. See [docs/parity.md](docs/parity.md).
+- **[Stow Web](https://github.com/mds08011/stow-web) has been updated to match** — same default, same `max_tokens` floor, same conditional reasoning parameters, same editable field, and the same rejection of truncated or empty polish output. The cross-app parity check passes on both sides. See [docs/parity.md](docs/parity.md).
 
 ## [2.7] — 2026-07-30
 

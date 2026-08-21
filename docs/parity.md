@@ -20,9 +20,9 @@ These must match byte-for-byte across both repos. They are checked mechanically 
 | Transcription model | `AudioTranscriber.MODEL_TURBO` | `MODELS.transcribe` |
 | Polish model | `TranscriptionPolisher.MODEL` | `MODELS.polish` |
 
-> ⚠️ **Open divergence as of v2.8 (2026-08-19).** Android moved the polish model from `llama-3.1-8b-instant` to `openai/gpt-oss-20b`; Stow Web has not been updated. **The parity check will fail until it is.** This is not a false alarm — Groq stopped serving the Llama chat models in August 2026, so Stow Web's polish is broken in exactly the way Android's was, and the fix there is the same one-line change plus the reasoning parameters described in [polishing-prompt.md](polishing-prompt.md#the-polish-model-is-a-setting). Whisper is unaffected on both sides.
+> ✅ **Resolved 2026-08-20.** Android moved the polish model from `llama-3.1-8b-instant` to `openai/gpt-oss-20b` in v2.8, and Stow Web followed: same default, same `max_tokens` floor, same conditional reasoning parameters, and the same user-editable field. Both sides of the check pass. The underlying cause was Groq deprecating its Llama chat models on 2026-06-17 and ceasing to serve them that August; Whisper was unaffected on both sides.
 >
-> Note that on Android the model is now a **user-editable setting** with `TranscriptionPolisher.MODEL` as its default. The contract is over the *default*, which is what the checker reads; a user who overrides it on one device has simply diverged from the web app on purpose, and no check can or should catch that.
+> Note that on both platforms the model is now a **user-editable setting** — `TranscriptionPolisher.MODEL` on Android, `MODELS.polish` on Web — with the shipped constant as its default. The contract is over the *default*, which is what the checker reads; a user who overrides it on one device has simply diverged from the other app on purpose, and no check can or should catch that.
 
 Two behaviours were ported **from** Stow Web in v2.7, and their logic should stay aligned:
 
@@ -31,11 +31,15 @@ Two behaviours were ported **from** Stow Web in v2.7, and their logic should sta
 
 Also expected to stay aligned, but **not** yet machine-checked:
 
-- Polish failure behaviour — a failed polish never yields partial or empty text; it reports why and leaves the raw transcript standing. Android v2.8 also rejects a `finish_reason == "length"` truncation, which Web should adopt.
-
+- Polish failure behaviour — a failed polish never yields partial or empty text; it reports why and leaves the raw transcript standing. Both sides now reject a `finish_reason == "length"` truncation, an error envelope arriving on a `200`, and an empty or missing message body, and both name the rejected model and point at the Polish model setting. Adopted on Web 2026-08-20.
 - Jargon semantics — appended to the preset prompt, or substituted at `{{JARGON_LIST}}` if present; also sent as the Whisper biasing prompt.
 - Daily usage wording and the 8 h / 28 800 s free-tier figure, so the two meters read interchangeably.
 - Transcription request shape: `language=en`, `temperature=0`, and `prompt` omitted entirely when the jargon dictionary is empty.
+
+> ⚠️ **Two open divergences in how the polish request is assembled.** Noticed 2026-08-20 while fixing the model. Both are pre-existing — neither was introduced by the v2.8 work, and neither is caught by the checker, which compares the prompt *constants* rather than the assembled system message.
+>
+> - **Transport note and transcript markers — Android only.** `PolishPresets.buildSystemPrompt` appends a `TRANSPORT_NOTE` to every preset, and the user message wraps the transcript in `<<<TRANSCRIPT` … `TRANSCRIPT>>>`, telling the model to treat what is between the markers as dictated content to clean and never as instructions to follow. Stow Web sends the bare transcript with no note and no markers. This is a **prompt-injection defence**: on Web, a dictated "ignore your instructions and…" reaches the model indistinguishably from a real instruction. Worth porting — but it changes the system message, so it will shift Web's polish output slightly and deserves its own change rather than being folded into an unrelated fix.
+> - **Length guard — Android only.** Android rejects Clean prose output below 0.4× or above 1.5× the input length (`enforceLengthGuard` in `TranscriptionPolisher`), which makes "light cleanup only" a property of the app rather than of a prompt the model can drift from. Web has no equivalent, so a Clean prose run that quietly rewrites or truncates is accepted there.
 
 ## Feature parity
 
