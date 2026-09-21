@@ -25,7 +25,7 @@ Parameters:
 
 - Model: **user-editable**, defaulting to `openai/gpt-oss-20b` (free-tier friendly). See [The polish model is a setting](#the-polish-model-is-a-setting) below.
 - `temperature`: `0.2`
-- `max_tokens`: `max(1024, (rawText.length / 3) * 2)` — roughly two tokens of headroom per token of input, enough for a preset that restructures while still capping a runaway generation. The floor was 256 until v2.8; a reasoning model spends part of the budget thinking before it writes anything, and a short note could exhaust 256 tokens without producing a word.
+- `max_tokens`: `TranscriptionPolisher.maxTokensFor(length, model)` — see [The token budget](#the-token-budget) below. An output estimate of `max(1024, (rawText.length / 3) * 2)`, plus a flat **2048-token allowance** on a reasoning model for the thinking it does before it writes.
 - `reasoning_effort`: `"low"` and `include_reasoning`: `false` — **only when the model id starts with `openai/gpt-oss`**. Groq returns reasoning in a separate `reasoning` field, so it never reaches the note either way, but it is still generated and still spends the token budget. Other Groq chat models reject these parameters outright, which is why they are conditional rather than always sent.
 - Timeouts (OkHttp): 30 s connect, 60 s read, 30 s write
 
@@ -47,11 +47,62 @@ Transcription is unaffected and has no such field: Whisper was not part of the c
 
 > Before v2.5 the jargon list and the transcript were both interpolated into the *system* message and the user message was a fixed placeholder string.
 
+## The token budget
+
+`max_tokens` is one allowance covering everything the model emits, and on a reasoning model that is not output alone. `openai/gpt-oss-20b` writes its thinking first, from the same budget, and only then the cleaned text.
+
+```
+maxTokensFor(length, model) = max(1024, (length / 3) * 2)          // output estimate
+                            + 2048  if the model is openai/gpt-oss  // thinking allowance
+```
+
+The output estimate is unchanged from v2.7 — roughly two tokens of headroom per token of input, which covers a preset that restructures while still capping a runaway generation. The allowance on top is new.
+
+**Why the v2.8 floor was not enough.** v2.8 met this by raising the `max_tokens` floor from 256 to 1024. But the floor only binds below about 1,500 characters — a minute of speech. Past that the estimate decides the budget, and the estimate had no thinking in it. The floor fixed the shortest notes and left everything longer exactly as it was.
+
+The allowance is **flat, not proportional**, because that is the shape of the cost: reading the preset's rules once before writing, which does not grow with the transcript.
+
+**The thinking cannot simply be turned off.** `reasoning_effort` is already `"low"`, the lowest gpt-oss accepts — `"none"` exists on Groq but only for Qwen models. Budgeting for it is the available move.
+
+### Why the order of checks matters
+
+When the budget runs out *during* the thinking, the model returns `finish_reason: "length"` with **no content at all**. v2.8 tested content for emptiness first, so that case was reported as `"Polish returned empty text"` — which reads as a misbehaving model when the cause is a budget too small to reach an answer. The cap is now tested first, and names which of the two happened:
+
+| `finish_reason` | Content | Message |
+|---|---|---|
+| `length` | empty | Polish used its whole token budget thinking and never wrote an answer |
+| `length` | present | Polish output was cut off at the token limit, so it is incomplete |
+| `stop` | empty | Polish returned empty text |
+
+### Rate-limit headers
+
+Groq returns `x-ratelimit-limit-tokens`, `x-ratelimit-remaining-tokens` and `retry-after` on **every** response, not only a 429. Each polish response logs them next to the `max_tokens` that was requested, under the `TranscriptionPolisher` tag.
+
+That pairing answers the one question the allowance turns on and the documentation does not settle: whether the per-minute budget is charged for `max_tokens` as requested, or only for the tokens actually generated. If it is the former, the allowance has a cost on the free tier and wants a ceiling; if the latter, it is free. On a 429 the line is shown to the user too, since "try again shortly" is otherwise the whole answer.
+
 ## Length guard
 
 For presets that promise to stay close to the original, the app checks the result rather than trusting the prompt: if the output is under **0.4×** or over **1.5×** the input length, it is rejected and the raw text is kept (`"Polish changed the text too much — keeping raw"`). Inputs of 40 characters or fewer are exempt, since ordinary filler removal swings the ratio too much to judge on a short note.
 
 This applies to **Clean prose only**. Task capture legitimately grows — adding `## Job` headings and `- [ ]` prefixes to a short capture can easily exceed 1.5× — and custom presets are not guarded, since their intent is unknown. In code the flag is `enforceLengthGuard`, set from `preset.id == ID_CLEAN_PROSE`.
+
+## Today's date injection
+
+`{{TODAY}}` anywhere in a preset is replaced with the device's current date as ISO
+`YYYY-MM-DD`, for every occurrence, before the request is sent.
+
+A model has no clock, so without this a preset can only repeat a spoken timeframe back —
+"by Friday" stays the words "by Friday". With it, a preset can resolve one to a date
+another tool can act on: the Obsidian plugin that turns these captures into Vikunja tasks
+reads a due date from `📅 YYYY-MM-DD` on the line and ignores anything else.
+
+The date is the **device's**, not the server's. A capture dictated at 11pm belongs to the
+day the speaker is living in, and Groq's idea of today is neither here nor there.
+
+Unlike the jargon list, nothing is appended when the placeholder is absent: a preset that
+does not ask for the date does not get it. `buildSystemPrompt` takes the date as a
+parameter defaulting to `LocalDate.now()`, so tests pin it rather than depending on when
+they run.
 
 ## Jargon Dictionary injection
 
@@ -95,7 +146,7 @@ These all route to `onError`:
 | Network error, or a non-2xx response | Nothing was returned |
 | An `error` envelope on a 200 | A 200 can still carry an error; treating it as "no content" hid the reason |
 | Missing or empty `choices` / `message` / `content` | Nothing to show |
-| `finish_reason == "length"` | The generation hit the token cap and stopped mid-sentence. It looks like ordinary output, so nothing downstream would catch it — this is the truncation case a reasoning model makes likely |
+| `finish_reason == "length"` | The generation hit the token cap. Checked **before** content is tested for emptiness — see [The token budget](#the-token-budget) |
 | A tripped length guard | See above; Clean prose only |
 | A blank preset prompt, or a blank model id | Misconfiguration, caught before the request |
 | An unparseable body | Nothing trustworthy to read |
@@ -209,7 +260,13 @@ Rules:
 - One task per line, even if the speaker ran several together.
 - Keep the speaker's wording. Fix obvious transcription errors from
   context. Never invent, merge, or expand items.
-- If a due date or timeframe is spoken, append it in parentheses at the
-  end of the task line, e.g. "- [ ] Order check valves (by Friday)".
+- If a due date or timeframe is spoken, resolve it against today's date,
+  {{TODAY}}, and append it as "📅 YYYY-MM-DD" at the end of the task
+  line, e.g. "- [ ] Order check valves 📅 2026-09-25". "Tomorrow",
+  "Friday" and "end of next week" all become one date; a weekday name
+  means the NEXT such day, never one already past. Leave the date off
+  entirely when none was spoken -- never guess one -- and keep a vague
+  timeframe in the text instead when it will not resolve to a day,
+  e.g. "- [ ] Chase the submittal (sometime after the pour)".
 - Preserve names, quantities, and job numbers exactly as spoken.
 ```
