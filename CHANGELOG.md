@@ -4,6 +4,20 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
+## [2.8.1] — 2026-09-21
+
+A bugfix for v2.8. Polish was failing in the field with *"Polish returned empty text"*, most often on notes longer than about a minute.
+
+### Fixed
+- **Polish has room to think.** `max_tokens` is one allowance covering everything the model emits, and `openai/gpt-oss-20b` writes its reasoning first, out of that same allowance, before any cleaned text. v2.8 raised the floor from 256 to 1024 to cover this, but the floor only binds below about 1,500 characters — a minute of speech. Past that the estimate decided the budget, and the estimate had no thinking in it. Requests to a `gpt-oss` model now add a flat **2048-token allowance** on top of the output estimate. The thinking cannot simply be turned off: `reasoning_effort` is already `low`, and gpt-oss does not accept `none`.
+- **A polish that ran out of budget says so.** When the allowance is spent during the thinking, Groq returns `finish_reason: length` with no content at all — and v2.8 tested content for emptiness first, so that case reported *"Polish returned empty text"* and the truncation check behind it was unreachable in exactly the situation it was added for. The token cap is now checked first, and names which happened: nothing written at all, or output cut off mid-sentence.
+
+### Added
+- **Rate-limit headers are recorded.** Every polish response logs Groq's `x-ratelimit-limit-tokens`, `x-ratelimit-remaining-tokens` and `retry-after` beside the `max_tokens` the request asked for, under the `TranscriptionPolisher` tag. On a 429 that line is shown to you, since *"try again shortly"* is otherwise the whole answer. Read together they settle what the documentation does not: whether the per-minute budget is charged for `max_tokens` as requested, or only for tokens actually generated.
+
+### Notes
+- **[Stow Web](https://github.com/mds08011/stow-web) sends no `max_tokens` on its polish call at all**, so it can hit neither fault and needs no matching change. The comment there claims this matches Android, which has never been true — a third divergence beyond the two recorded in [docs/parity.md](docs/parity.md), and left for that repo.
+
 ## [2.8] — 2026-08-20
 
 Groq retired the Llama chat models Stow used for polish. This release moves to a current model and makes sure the next retirement is a settings change rather than a release.
