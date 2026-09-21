@@ -100,4 +100,98 @@ class TranscriptionPolisherTest {
         assertEquals("openai/gpt-oss-20b", TranscriptionPolisher.MODEL)
         assertFalse(TranscriptionPolisher.MODEL.contains("llama"))
     }
+
+    // --- Token budget ----------------------------------------------------------------
+    //
+    // The failure these cover, seen in the field on v2.8: "Polish returned empty text".
+    // gpt-oss spends part of the completion budget thinking before it writes, so a note
+    // whose budget was only just large enough came back with nothing in it.
+
+    @Test
+    fun `a reasoning model gets an allowance a non-reasoning model does not`() {
+        val chars = 6000
+        val reasoning = TranscriptionPolisher.maxTokensFor(chars, "openai/gpt-oss-20b")
+        val plain = TranscriptionPolisher.maxTokensFor(chars, "llama-3.3-70b-versatile")
+
+        assertEquals(4000, plain)
+        assertTrue("a reasoning model needs the larger budget", reasoning > plain)
+    }
+
+    @Test
+    fun `the allowance reaches mid-length notes, not just ones on the floor`() {
+        // The v2.8 fix was to raise the floor, which only binds below ~1,500 characters.
+        // A note past that took its budget from the estimate and got no allowance at all.
+        val onTheFloor = TranscriptionPolisher.maxTokensFor(300, model)
+        val pastTheFloor = TranscriptionPolisher.maxTokensFor(3000, model)
+
+        assertTrue(onTheFloor > 1024)
+        assertTrue("the estimate alone would have been 2000", pastTheFloor > 2000 + 1000)
+    }
+
+    @Test
+    fun `the budget still grows with the transcript`() {
+        val short = TranscriptionPolisher.maxTokensFor(2000, model)
+        val long = TranscriptionPolisher.maxTokensFor(20000, model)
+
+        assertTrue(long > short)
+        // Still a cap, not an open budget: a runaway generation is what it exists to stop.
+        assertTrue(long < 20000)
+    }
+
+    // --- Stopping on the token cap ---------------------------------------------------
+
+    @Test
+    fun `no content at all is reported as the budget, not as a bad model`() {
+        val message = TranscriptionPolisher.describeTokenCap(noContent = true)
+
+        assertTrue(message.contains("thinking"))
+        assertTrue(message.contains("keeping raw"))
+        // "empty text" is what v2.8 said here, and it pointed at the wrong thing.
+        assertFalse(message.contains("empty text"))
+    }
+
+    @Test
+    fun `truncated output is reported as truncation`() {
+        val message = TranscriptionPolisher.describeTokenCap(noContent = false)
+
+        assertTrue(message.contains("cut off"))
+        assertTrue(message.contains("keeping raw"))
+    }
+
+    // --- Rate-limit headers -----------------------------------------------------------
+
+    @Test
+    fun `the rate limit line reads as a budget`() {
+        assertEquals(
+            "1200 of 6000 tokens left · retry after 7.5s",
+            TranscriptionPolisher.formatRateLimit("6000", "1200", "7.5")
+        )
+    }
+
+    @Test
+    fun `partial headers still produce a line, and absent ones produce none`() {
+        assertEquals("1200 tokens left", TranscriptionPolisher.formatRateLimit(null, "1200", null))
+        assertEquals("retry after 3s", TranscriptionPolisher.formatRateLimit(null, null, "3"))
+        assertEquals(null, TranscriptionPolisher.formatRateLimit(null, null, null))
+        assertEquals(null, TranscriptionPolisher.formatRateLimit("6000", "  ", ""))
+    }
+
+    @Test
+    fun `a rate limited polish shows what is left rather than just try again`() {
+        val message = TranscriptionPolisher.describePolishError(
+            429,
+            null,
+            model,
+            TranscriptionPolisher.formatRateLimit("6000", "0", "12")
+        )
+
+        assertTrue(message.contains("rate limit"))
+        assertTrue(message.contains("0 of 6000 tokens left"))
+        assertTrue(message.contains("retry after 12s"))
+    }
+
+    @Test
+    fun `a failure with no headers is unchanged`() {
+        assertFalse(describe(429, null).contains("tokens left"))
+    }
 }

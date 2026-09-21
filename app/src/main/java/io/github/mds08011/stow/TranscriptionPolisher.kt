@@ -68,11 +68,7 @@ class TranscriptionPolisher(
             append(PolishPresets.TRANSCRIPT_END)
         }
 
-        // Roughly two tokens of headroom per token of input — enough for any preset that
-        // restructures, while still capping a runaway generation on the free tier. The
-        // floor is generous because a reasoning model spends part of the budget thinking
-        // before it writes anything; see MIN_MAX_TOKENS.
-        val maxTokens = maxOf(MIN_MAX_TOKENS, (rawText.length / 3) * 2)
+        val maxTokens = maxTokensFor(rawText.length, model)
 
         val body = JSONObject().apply {
             put("model", model)
@@ -115,8 +111,25 @@ class TranscriptionPolisher(
 
             override fun onResponse(call: Call, response: Response) {
                 val responseBody = response.body?.string()
+                val rateLimit = formatRateLimit(
+                    limit = response.header("x-ratelimit-limit-tokens"),
+                    remaining = response.header("x-ratelimit-remaining-tokens"),
+                    retryAfter = response.header("retry-after")
+                )
+                // Logged on every response, successes included, alongside what was asked
+                // for. Groq returns these headers always, and read together they answer
+                // the question the budget below turns on: whether the per-minute
+                // allowance is charged for max_tokens or only for tokens actually
+                // generated. That decides how large the reasoning allowance can safely
+                // get, and it is answerable from ordinary field use rather than a test.
+                android.util.Log.i(
+                    TAG,
+                    "polish: model=$model status=${response.code} " +
+                        "chars=${rawText.length} maxTokens=$maxTokens " +
+                        "rateLimit=${rateLimit ?: "absent"}"
+                )
                 if (!response.isSuccessful || responseBody == null) {
-                    onError(describePolishError(response.code, responseBody, model))
+                    onError(describePolishError(response.code, responseBody, model, rateLimit))
                     return
                 }
                 try {
@@ -124,7 +137,7 @@ class TranscriptionPolisher(
                     // A 200 can still carry an error envelope; treat it as a failure rather
                     // than falling through to "no content".
                     if (json.has("error")) {
-                        onError(describePolishError(response.code, responseBody, model))
+                        onError(describePolishError(response.code, responseBody, model, rateLimit))
                         return
                     }
                     val choices = json.optJSONArray("choices")
@@ -135,17 +148,19 @@ class TranscriptionPolisher(
                     val choice = choices.getJSONObject(0)
                     val message = choice.optJSONObject("message")
                     val polished = message?.optString("content").orEmpty().trim()
-                    if (polished.isEmpty()) {
-                        onError("Polish returned empty text — keeping raw.")
+                    // The token cap is tested before emptiness, and the order is the whole
+                    // point. A reasoning model can spend the entire budget thinking and
+                    // return finish_reason=length with no content at all — which is the
+                    // exact failure the cap check was added for in v2.8, and which the
+                    // emptiness check in front of it then swallowed. Reported as "returned
+                    // empty text" it reads as a misbehaving model; it is a budget too small
+                    // to reach an answer, and the two want different fixes.
+                    if (choice.optString("finish_reason") == "length") {
+                        onError(describeTokenCap(polished.isEmpty()))
                         return
                     }
-                    // A generation that stopped on the token cap is truncated mid-sentence.
-                    // It looks like ordinary output, so nothing downstream would catch it.
-                    if (choice.optString("finish_reason") == "length") {
-                        onError(
-                            "Polish output was cut off at the token limit, so it is " +
-                                "incomplete — keeping raw."
-                        )
+                    if (polished.isEmpty()) {
+                        onError("Polish returned empty text — keeping raw.")
                         return
                     }
                     // "Light cleanup only" is otherwise enforced purely by a prompt a small
@@ -185,7 +200,12 @@ class TranscriptionPolisher(
          * side; kept separate because the advice differs — a polish failure always leaves
          * the raw transcript intact, and a rejected model points at a setting the user owns.
          */
-        fun describePolishError(status: Int, body: String?, model: String): String {
+        fun describePolishError(
+            status: Int,
+            body: String?,
+            model: String,
+            rateLimit: String? = null
+        ): String {
             val serverMessage = errorMessage(body)
             val rejectedModel = status == 404 ||
                 body?.contains("model_decommissioned", ignoreCase = true) == true ||
@@ -203,7 +223,8 @@ class TranscriptionPolisher(
                 status == 401 || status == 403 ->
                     "Your Groq API key was rejected. Check it in Settings."
                 status == 429 ->
-                    "Groq rate limit reached, so the note was not polished. Try again shortly."
+                    "Groq rate limit reached, so the note was not polished. Try again shortly." +
+                        rateLimit?.let { "\n\n$it" }.orEmpty()
                 status >= 500 ->
                     "Groq had a server error ($status), so the note was not polished."
                 else ->
@@ -233,6 +254,64 @@ class TranscriptionPolisher(
         }
 
         /**
+         * The completion budget for one polish request.
+         *
+         * The output estimate is unchanged: roughly two tokens of headroom per token of
+         * input, which covers a preset that restructures while still capping a runaway
+         * generation. What v2.8 missed is that on a reasoning model the budget is not
+         * spent on output alone — gpt-oss emits its thinking first and from the same
+         * allowance, so a note whose estimate was only just large enough arrived
+         * truncated, or empty when the thinking consumed all of it.
+         *
+         * Raising [MIN_MAX_TOKENS] did not fix that, because the floor only binds below
+         * about 1,500 characters and the failure runs well past it. The thinking cannot
+         * be switched off either: `reasoning_effort` is already `"low"`, and gpt-oss does
+         * not accept `"none"` (only Qwen does). So it is budgeted for instead.
+         *
+         * The allowance is flat rather than proportional because that is the shape of the
+         * cost — reading the preset's rules once before writing, which does not grow with
+         * the transcript.
+         */
+        fun maxTokensFor(rawTextLength: Int, model: String): Int {
+            val output = maxOf(MIN_MAX_TOKENS, (rawTextLength / 3) * 2)
+            return if (isReasoningModel(model)) output + REASONING_HEADROOM_TOKENS else output
+        }
+
+        /**
+         * Why a generation that stopped on the token cap has no usable result.
+         *
+         * Split in two because the two cases point at different things. Truncated output
+         * means the transcript outgrew its budget; nothing at all means the model never
+         * got past thinking, which is a reasoning-model failure and the reason
+         * [REASONING_HEADROOM_TOKENS] exists.
+         */
+        fun describeTokenCap(noContent: Boolean): String = if (noContent) {
+            "Polish used its whole token budget thinking and never wrote an answer — " +
+                "keeping raw."
+        } else {
+            "Polish output was cut off at the token limit, so it is incomplete — " +
+                "keeping raw."
+        }
+
+        /**
+         * Groq's rate-limit headers condensed to one line, or null when none were sent.
+         *
+         * Groq returns these on every response, not only a 429, which is what makes them
+         * worth reading: the gap between what a request asks for and what the budget is
+         * charged is the open question behind [maxTokensFor]. Shown to the user only on a
+         * 429, where "try again shortly" is otherwise the whole answer.
+         */
+        fun formatRateLimit(limit: String?, remaining: String?, retryAfter: String?): String? {
+            val parts = buildList {
+                remaining?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    add(if (limit.isNullOrBlank()) "$it tokens left" else "$it of $limit tokens left")
+                }
+                retryAfter?.trim()?.takeIf { it.isNotEmpty() }?.let { add("retry after ${it}s") }
+            }
+            return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+        }
+
+        /**
          * Reasoning controls are gpt-oss-specific. Other Groq chat models reject the
          * parameters outright, and the polish model is user-editable, so they are only
          * sent when the selected model is one that understands them.
@@ -241,12 +320,22 @@ class TranscriptionPolisher(
             model.trim().startsWith("openai/gpt-oss", ignoreCase = true)
 
         /**
-         * Floor for `max_tokens`. Was 256, which was ample for an 8B Llama that started
-         * writing immediately. A reasoning model emits thinking tokens first and they come
-         * out of the same budget, so a short note could spend the whole cap before writing
-         * a word — arriving as a truncated or empty polish rather than an error.
+         * Floor under the *output* half of the budget, for a note too short to estimate
+         * from. Was 256 until v2.8, which raised it to 1024 to cover a reasoning model's
+         * thinking. That is now [REASONING_HEADROOM_TOKENS]' job — added on top rather
+         * than folded into the floor, so it also reaches the mid-length notes where the
+         * estimate, not the floor, decides the budget.
          */
         private const val MIN_MAX_TOKENS = 1024
+
+        /**
+         * Flat allowance added to a reasoning model's budget for the tokens it spends
+         * thinking before it writes. See [maxTokensFor] for why it is flat, and why the
+         * floor alone was not enough.
+         */
+        private const val REASONING_HEADROOM_TOKENS = 2048
+
+        private const val TAG = "TranscriptionPolisher"
 
         /** Below this length, normal filler removal swings the ratio too much to judge. */
         private const val LENGTH_GUARD_MIN_CHARS = 40
