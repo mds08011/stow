@@ -41,6 +41,10 @@ android {
         }
     }
     compileOptions {
+        // java.time is API 26; minSdk is 24. Desugaring back-ports it rather than
+        // dropping Android 7, which raising minSdk would have done. PolishPresets
+        // needs LocalDate to resolve {{TODAY}}, and that runs on every polish.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -61,6 +65,9 @@ dependencies {
     
     // OkHttp for networking
     implementation("com.squareup.okhttp3:okhttp:4.11.0")
+
+    // Back-ports java.time to API 24. See isCoreLibraryDesugaringEnabled above.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
     testImplementation("junit:junit:4.13.2")
     // The android.jar used by unit tests stubs org.json to throw; the real artifact on the
