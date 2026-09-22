@@ -3,6 +3,7 @@ package io.github.mds08011.stow
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
 import java.util.UUID
 
 /**
@@ -23,6 +24,16 @@ object PolishPresets {
 
     /** Optional placeholder letting a preset control where the Jargon Dictionary lands. */
     const val JARGON_PLACEHOLDER = "{{JARGON_LIST}}"
+
+    /**
+     * Optional placeholder for today's date, ISO `YYYY-MM-DD`, in the device's own timezone.
+     *
+     * A model has no clock. Without this a preset can only repeat a spoken timeframe back
+     * ("by Friday"); with it, the preset can resolve one to a real date that another tool
+     * can act on. Substituted for every occurrence, like the jargon list, and never
+     * appended when absent -- a preset that does not ask for the date does not get it.
+     */
+    const val TODAY_PLACEHOLDER = "{{TODAY}}"
 
     private const val PREFS_NAME = "StowPrefs"
     private const val KEY_PRESETS = "polish_presets"
@@ -97,8 +108,14 @@ object PolishPresets {
         |- One task per line, even if the speaker ran several together.
         |- Keep the speaker's wording. Fix obvious transcription errors from
         |  context. Never invent, merge, or expand items.
-        |- If a due date or timeframe is spoken, append it in parentheses at the
-        |  end of the task line, e.g. "- [ ] Order check valves (by Friday)".
+        |- If a due date or timeframe is spoken, resolve it against today's date,
+        |  {{TODAY}}, and append it as "📅 YYYY-MM-DD" at the end of the task
+        |  line, e.g. "- [ ] Order check valves 📅 2026-09-25". "Tomorrow",
+        |  "Friday" and "end of next week" all become one date; a weekday name
+        |  means the NEXT such day, never one already past. Leave the date off
+        |  entirely when none was spoken -- never guess one -- and keep a vague
+        |  timeframe in the text instead when it will not resolve to a day,
+        |  e.g. "- [ ] Chase the submittal (sometime after the pour)".
         |- Preserve names, quantities, and job numbers exactly as spoken.
     """.trimMargin()
 
@@ -116,7 +133,12 @@ object PolishPresets {
      * otherwise a jargon block is appended to the end. When the Jargon Dictionary is
      * empty no block is added at all.
      */
-    fun buildSystemPrompt(preset: Preset, jargon: String): String {
+    @JvmOverloads
+    fun buildSystemPrompt(
+        preset: Preset,
+        jargon: String,
+        today: LocalDate = LocalDate.now(),
+    ): String {
         val list = jargon.trim()
         val withJargon = when {
             preset.prompt.contains(JARGON_PLACEHOLDER) ->
@@ -124,9 +146,13 @@ object PolishPresets {
             list.isEmpty() -> preset.prompt
             else -> preset.prompt.trimEnd() + "\n\nJargon List (preserve these exactly):\n" + list
         }
+        // The date is the device's, not the server's: a capture dictated at 11pm belongs to
+        // the day the speaker is living in, and Groq's idea of "today" is neither here nor
+        // there. ISO so there is no month/day ambiguity for the model to get wrong.
+        val withDate = withJargon.replace(TODAY_PLACEHOLDER, today.toString())
         // Appended to every preset, including user-written ones: the transport contract is
         // the app's to guarantee, not something each prompt should have to remember.
-        return withJargon.trimEnd() + "\n\n" + TRANSPORT_NOTE
+        return withDate.trimEnd() + "\n\n" + TRANSPORT_NOTE
     }
 
     /** Marks the dictated content in the user message so spoken words cannot act as instructions. */

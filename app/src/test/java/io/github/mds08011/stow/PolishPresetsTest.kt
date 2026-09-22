@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 /**
  * Covers how a preset's prompt becomes the system message: jargon injection and the
@@ -16,6 +17,12 @@ class PolishPresetsTest {
         "custom2",
         "Custom 2",
         "Terms: ${PolishPresets.JARGON_PLACEHOLDER}\nDo the thing."
+    )
+
+    private val withToday = PolishPresets.Preset(
+        "with_today",
+        "With today",
+        "Today is ${PolishPresets.TODAY_PLACEHOLDER}. Due ${PolishPresets.TODAY_PLACEHOLDER}."
     )
 
     @Test
@@ -47,6 +54,40 @@ class PolishPresetsTest {
         val prompt = PolishPresets.buildSystemPrompt(withPlaceholder, "")
 
         assertTrue(prompt.contains("Terms: (none)"))
+    }
+
+    @Test
+    fun `today placeholder is replaced with the supplied date, everywhere`() {
+        val prompt = PolishPresets.buildSystemPrompt(withToday, "", LocalDate.of(2026, 9, 21))
+
+        assertTrue(prompt.contains("Today is 2026-09-21."))
+        assertTrue(prompt.contains("Due 2026-09-21."))
+        assertFalse(prompt.contains(PolishPresets.TODAY_PLACEHOLDER))
+    }
+
+    @Test
+    fun `a preset that does not ask for the date never sees one`() {
+        val prompt = PolishPresets.buildSystemPrompt(plain, "", LocalDate.of(2026, 9, 21))
+
+        assertFalse(prompt.contains("2026-09-21"))
+    }
+
+    @Test
+    fun `the built-in task capture preset asks for today and emits ISO dates`() {
+        // Built from the shipped prompt constant: getAll() needs a Context, and the
+        // property under test is the prompt text, not how it is stored.
+        val taskCapture = PolishPresets.Preset(
+            PolishPresets.ID_TASK_CAPTURE,
+            PolishPresets.DEFAULT_TASK_CAPTURE_NAME,
+            PolishPresets.DEFAULT_TASK_CAPTURE_PROMPT,
+        )
+        val prompt = PolishPresets.buildSystemPrompt(taskCapture, "", LocalDate.of(2026, 9, 21))
+
+        // The date has to reach the model, or every spoken deadline is guesswork.
+        assertTrue(prompt.contains("2026-09-21"))
+        assertFalse(prompt.contains(PolishPresets.TODAY_PLACEHOLDER))
+        // The emoji form is what the Obsidian plugin reads a due date from.
+        assertTrue(prompt.contains("📅 YYYY-MM-DD"))
     }
 
     @Test
