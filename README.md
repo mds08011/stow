@@ -78,12 +78,69 @@ Stow is not distributed on the Play Store by default; sideloading from GitHub Re
 
 ### Build from source
 
-1. Clone the repository or open it in GitHub Codespaces / Android Studio.
-2. From the project root, compile a debug APK:
-   ```bash
-   ./gradlew assembleDebug
-   ```
-3. Install the generated APK from `app/build/outputs/apk/debug/` with `adb install` or by copying it to the device.
+Open the project in Android Studio and build normally, or from a terminal:
+
+```bash
+./gradlew testDebugUnitTest    # the unit tests
+./gradlew assembleDebug        # app/build/outputs/apk/debug/
+```
+
+Install the result with `adb install` or by copying it to the device.
+
+#### Toolchain
+
+**JDK 17** and the **Android SDK** (platform 34, build-tools 34). Android Studio supplies
+both. On a headless machine with neither — and without root — this is enough:
+
+```bash
+# JDK 17
+mkdir -p ~/.local/jdk && cd ~/.local/jdk
+curl -sSL -o jdk.tar.gz "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse"
+tar xzf jdk.tar.gz && rm jdk.tar.gz
+export JAVA_HOME=$(ls -d ~/.local/jdk/jdk-*)
+
+# Android SDK
+export ANDROID_HOME=~/Android/Sdk
+mkdir -p "$ANDROID_HOME/cmdline-tools" && cd "$ANDROID_HOME/cmdline-tools"
+curl -sSL -o clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+python3 -m zipfile -e clt.zip . && rm clt.zip && mv cmdline-tools latest && chmod +x latest/bin/*
+yes | latest/bin/sdkmanager --sdk_root="$ANDROID_HOME" --licenses
+latest/bin/sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+# Point Gradle at it (local.properties is gitignored — it is machine-specific)
+cd /path/to/stow && echo "sdk.dir=$ANDROID_HOME" > local.properties
+```
+
+`python3 -m zipfile` rather than `unzip`, which is often absent and needs root to install.
+[`.github/workflows/build.yml`](.github/workflows/build.yml) is the authoritative version of
+all this — it is what every push is verified against.
+
+#### Building on a small machine
+
+**With less than about 3 GB of free RAM, override the heap:**
+
+```bash
+./gradlew :app:testDebugUnitTest --no-daemon -Dorg.gradle.jvmargs=-Xmx768m
+```
+
+`gradle.properties` requests a 2 GB heap, which is right for a development machine and too
+much for a small VPS. Override it on the command line rather than editing the file, which is
+committed and shared.
+
+The failure when it does not fit is worth recognising, because it names neither memory nor
+the process that died:
+
+```
+> Task :app:testDebugUnitTest FAILED
+  Process 'Gradle Test Executor 1' finished with non-zero exit value 1
+  This problem might be caused by incorrect test process configuration.
+```
+
+...preceded by a `TcpOutgoingConnector` stack trace. That is the test worker being killed —
+by the OOM killer, or by something like `earlyoom` — and Gradle only seeing the socket drop.
+Every compile task succeeds first, so it reads like a test-harness misconfiguration rather
+than the machine running out of memory. Reducing the heap fixes it; so does not building
+here.
 
 ## How to Trigger a New Release
 
