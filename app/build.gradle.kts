@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.mds08011.stow"
         minSdk = 24
         targetSdk = 34
-        versionCode = 18
-        versionName = "2.8.1"
+        versionCode = 19
+        versionName = "2.8.2"
     }
 
     // Release signing is supplied through environment variables so no keystore or

@@ -4,6 +4,19 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
+## [2.8.2] — 2026-09-22
+
+Dictated deadlines become real dates, and a crash that shipped with them is closed before anyone could hit it.
+
+### Added
+- **Spoken deadlines resolve to real dates.** A model has no clock, so "order check valves by Friday" could only ever be echoed back as prose. Presets gain a second placeholder, **`{{TODAY}}`**, substituted with the device's own date in ISO form — the device's, because a capture dictated at 11pm belongs to the day the speaker is living in. **Task capture** now spends it: a resolved deadline is appended as `📅 YYYY-MM-DD`, which is the form the Obsidian Tasks plugin reads a due date from, so a dictated task arrives with a real due date instead of a phrase buried in its title. A weekday name means the next such day, never one already past; a timeframe that will not resolve to a single day stays in the text as spoken; nothing is guessed when no deadline was spoken. Presets that do not ask for the date never see one.
+
+### Fixed
+- **Polish no longer crashes on Android 7.** Resolving `{{TODAY}}` uses `java.time.LocalDate`, which is API 26, while Stow's `minSdk` is 24 — and the date is read on *every* polish with *every* preset, not just Task capture. On Android 7.0 and 7.1 that would have been an immediate crash. Core library desugaring now back-ports `java.time` to API 24, so device support is unchanged. Nothing in CI would have caught this: the app compiles against API 34, unit tests run on a desktop JVM where `java.time` simply exists, and neither lint nor an instrumented test runs on a build.
+
+### Notes
+- **[Stow Web](https://github.com/mds08011/stow-web) shipped the same change in the same sitting**, which is what the parity contract asks for. The prompt text is generated from `PolishPresets.kt` rather than retyped, so the two copies are identical by construction, and `{{TODAY}}` is now a machine-compared identifier in the drift check alongside `{{JARGON_LIST}}`. Stow Web formats the date in the browser's timezone and deliberately not with `toISOString()`, which is UTC and would land an evening task a day late.
+
 ## [2.8.1] — 2026-09-21
 
 A bugfix for v2.8. Polish was failing in the field with *"Polish returned empty text"*, most often on notes longer than about a minute.
