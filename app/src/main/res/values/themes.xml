@@ -9,5 +9,22 @@
         <item name="colorSecondary">@color/accent</item>
         <item name="colorSecondaryVariant">@color/accent</item>
         <item name="colorOnSecondary">@color/black</item>
+        <!-- Text buttons and dialog buttons draw colorPrimary as their text colour, which at
+             night is dark purple on a dark surface. Both take primaryText instead; filled
+             buttons keep full-strength purple behind white text, which reads fine. -->
+        <item name="borderlessButtonStyle">@style/Widget.Stow.TextButton</item>
+        <item name="alertDialogTheme">@style/ThemeOverlay.Stow.Dialog.Alert</item>
+    </style>
+
+    <style name="ThemeOverlay.Stow.PrimaryText" parent="">
+        <item name="colorPrimary">@color/primaryText</item>
+    </style>
+
+    <style name="Widget.Stow.TextButton" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="materialThemeOverlay">@style/ThemeOverlay.Stow.PrimaryText</item>
+    </style>
+
+    <style name="ThemeOverlay.Stow.Dialog.Alert" parent="ThemeOverlay.MaterialComponents.Dialog.Alert">
+        <item name="colorPrimary">@color/primaryText</item>
     </style>
 </resources>

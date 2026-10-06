@@ -154,7 +154,7 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_marginTop="8dp"
-        android:background="@android:drawable/edit_text"
+        android:background="@drawable/transcript_box"
         android:gravity="top|start"
         android:hint="Transcription will appear here..."
         android:inputType="textMultiLine|textCapSentences"
