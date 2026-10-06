@@ -4,6 +4,14 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
+## [2.8.3] — 2026-10-05
+
+Dark mode is readable again. Light mode is unchanged.
+
+### Fixed
+- **The transcript box follows the theme.** It was drawn with Android's old light-grey text-field image, which ignores dark mode, while the text in it turns white at night — white on near-white, 1.1:1. The box now has a dark fill and grey border at night and a white fill by day, and its border turns purple while you are editing.
+- **Purple text is legible on dark backgrounds.** Text buttons — **Show raw**, the preset selector, **Pause** — and every dialog's buttons drew the brand purple `#6200EE` as text, which is 2.5:1 on the dark screen and 1.3:1 on a dialog's grey. At night they now use a lighter purple, `#CF9FFF`, which clears 4.5:1 on both. Filled buttons such as **Start Recording** keep the full-strength purple, because white on it is already 7.6:1.
+
 ## [2.8.2] — 2026-09-22
 
 Dictated deadlines become real dates, and a crash that shipped with them is closed before anyone could hit it.
