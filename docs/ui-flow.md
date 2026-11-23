@@ -18,7 +18,7 @@ stateDiagram-v2
     Uploading --> Result: success + auto-polish off
     Uploading --> UploadFailed: network or API error
 
-    UploadFailed --> Uploading: Retry last upload
+    UploadFailed --> Uploading: Retry (every queued recording, oldest first)
     UploadFailed --> Idle: start a new recording
 
     Polishing --> Result: polished (auto — no dialog)
@@ -53,7 +53,7 @@ stateDiagram-v2
 
 A service-side clipboard write is *not* a substitute — Android 10+ blocks clipboard access for apps that are not in focus.
 
-**2. Failed uploads keep their audio.** Recordings use unique filenames, so a failure is not overwritten by the next take. The path is remembered in `failed_audio_path` and offered as **Retry last upload**. Successful transcription clears the failure and prunes the cache.
+**2. Failed uploads keep their audio, and there can be more than one.** Recordings use unique filenames, so a failure is not overwritten by the next take. Each failure joins `UploadQueue`, a list in preferences, and stays there until it is transcribed. **Retry** sends the whole list oldest first, one upload at a time. Each note is saved to history as it lands and only the last is broadcast as `STATE_SUCCESS`. Any failure ends the run and moves that recording to the back, so one that can never succeed does not block the rest. Recordings are written to `filesDir/audio`, which Android does not clear under storage pressure, and are excluded from backup. Before v2.8.4 there was a single slot, `failed_audio_path`, and a second failure orphaned the first.
 
 **3. The mic indicator never guesses.** It reports what `getRoutedDevice()` returned, or "unknown" — never an inference from which devices happen to be connected. The old indicator enumerated *available* inputs and so displayed "Bluetooth Mic" whenever a headset was paired, while the built-in mic recorded. That single false label cost two days of unusable dictation before anyone suspected the audio path. See [audio-investigation-2026-07.md](audio-investigation-2026-07.md).
 
@@ -80,14 +80,32 @@ A service-side clipboard write is *not* a substitute — Android 10+ blocks clip
 - `lastHistoryEntryId` — the entry to update on edit; **set from the service's broadcast**, not created locally
 - `lastRawTranscription`, `lastDurationSeconds`
 
+### Live state: what the service is doing right now
+
+`MainActivity` unregisters its receiver in `onStop()`, so it misses every broadcast sent while the screen is off or another app is in front: a stop from the notification, a start or stop from the tile, a pause, an upload finishing or failing. Broadcasts are not replayed. The service therefore keeps its current state in memory, in `RecordingService`'s companion object, and `MainActivity.syncWithService()` reads it at the top of every `onStart()`, before `consumePendingResult()`.
+
+| Field | Meaning |
+|---|---|
+| `liveState` | `idle`, `recording`, `paused` or `uploading`. Set to idle by every `STATE_ERROR` and `STATE_SUCCESS` broadcast |
+| `liveActiveMillis()` | Recorded time with pauses excluded, for the timer |
+| `liveRouteLabel`, `liveRouteSampleRate` | The microphone line |
+| `liveLastError` | The last error broadcast, until a screen has shown it |
+| `uploadInFlight` | True while an upload or a run of them is going. Separate from `liveState` because a new recording can start during an upload, and then the state reads `recording` |
+
+There is one upload at a time. A recording that stops while another is uploading joins the queue and the running chain picks it up. The service stops only when it is neither recording nor uploading, and that check runs on the main thread. While `uploadInFlight` is true the activity hides Retry, does not offer the checkpoint as an unfinished recording, and leaves `pending_result_id` unclaimed.
+
+It is memory, not a preference, on purpose. The activity, the tile and the service share one process, so the state resets when the process dies. The `is_recording` preference it replaced outlived a crash and left the tile reading "Recording".
+
+Until v2.8.4 nothing did this. Stopping from the lock-screen notification left the activity believing it was still recording: the note reached history, but the screen showed Stop Recording with the timer running and never showed or copied the result.
+
 Shared preferences crossing the process boundary (all in `StowPrefs`):
 
 | Key | Written by | Read by |
 |---|---|---|
 | `pending_result_id` | service | activity (`onStart`) |
 | _(files)_ `Documents/responses/<entryId>.json` | service | manual troubleshooting; capped at 20, oldest pruned |
-| _(files)_ `cache/audio_<ts>.m4a` | service | Share audio / Re-transcribe; newest 5 kept for 7 days, plus any pending retry |
+| _(files)_ `files/audio/audio_<ts>.m4a` | service | Share audio / Re-transcribe; newest 5 kept for 7 days, plus every recording not yet transcribed. Versions before 2.8.4 wrote to `cache/`, and those files are still found there |
 | `ui_visible` | activity | service (whether to notify) |
-| `is_recording` | service | Quick Settings tile |
-| `failed_audio_path`, `failed_audio_duration` | service | activity (Retry button) |
+| `upload_queue` | service, activity | activity (Retry button), service (retry run). JSON list of recordings awaiting upload; see `UploadQueue` |
+| `failed_audio_path`, `failed_audio_duration` | nobody since v2.8.4 | `UploadQueue.load`, once, to carry a pre-2.8.4 retry into the queue |
 | `selected_polish_preset`, `polish_presets` | activity | activity |

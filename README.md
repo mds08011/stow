@@ -4,7 +4,7 @@ A lightweight, highly accurate Android dictation app built for speed, privacy, a
 
 Unlike heavy offline apps that drain battery and overheat your phone by running massive AI models locally, **Stow** acts as a lightning-fast API wrapper. It records your audio and offloads the heavy lifting to the [Groq API](https://groq.com/), utilizing the `whisper-large-v3-turbo` model for near-instant, desktop-grade transcriptions directly on your mobile device.
 
-**Current version: 2.8.3**
+**Current version: 2.8.4**
 
 ## Features
 * **Massive AI Models, Zero Hardware Tax:** Uses Whisper Large-v3-Turbo without competing with Android's system processes for memory.
@@ -12,7 +12,7 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
 * **Nothing Is Lost If You Walk Away:** The transcription is saved to history the moment it arrives, even if Stow is not on screen. Lock your phone or switch apps while the upload finishes and you get a **Transcription ready** notification; tapping it (or just reopening Stow) restores the result screen with the text copied to your clipboard.
 * **No Artificial Limits:** Record as long as you need without hardcoded 30-second cutoffs. Audio is captured at 16 kHz mono (what Whisper uses anyway), so an hour of dictation is roughly 14 MB — well inside Groq's upload limit and quick to send on patchy site data.
 * **Pause & Resume:** Interrupted mid-note? Pause from the notification or the main screen and pick up where you left off. Paused time is excluded from the note's duration and your daily usage.
-* **Upload Retry:** A dropped connection retries once automatically. If it still fails, the audio is kept and a **Retry last upload** button appears on the main screen — a lost note becomes one tap instead of a re-dictation. When Groq rate-limits you the button counts down until a retry could actually succeed, rather than letting you burn another slot.
+* **Upload Retry:** A dropped connection retries once automatically. If it still fails, the audio is kept and a **Retry last upload** button appears on the main screen — a lost note becomes one tap instead of a re-dictation. Every failed recording waits its turn: dictate three notes in a dead zone and the button reads **Retry 3 uploads**, sending them oldest first. When Groq rate-limits you the button counts down until a retry could actually succeed, rather than letting you burn another slot.
 * **Survives Being Killed:** Every recording is checkpointed the moment it stops, before the upload starts. If Stow is closed or killed mid-upload, the next launch offers the recording back rather than stranding it.
 * **UI Timer & Usage Tracker:** Keep track of your current recording duration with a live on-screen Chronometer, and easily monitor your total daily API usage directly on the main screen so you stay within the 8-hour Groq Free limit.
 * **Tap-to-Toggle Interface:** Simple UI. Tap to start recording, tap to stop. No annoying "push-to-hold" mechanics.
@@ -31,7 +31,7 @@ Unlike heavy offline apps that drain battery and overheat your phone by running 
   Pick the preset from the compact selector next to **Polish**; the choice is remembered and is what auto-polish uses. With auto-polish on there is **no confirmation step** — you land straight on the editable result with the polished text already copied, and a **Show raw / Show polished** toggle in the result header if you want the other version. Add your own presets, edit any prompt, rename, and delete custom ones under **Settings → Polish presets…**. The two built-ins can be reset to their shipped text but never deleted.
 * **Battery Friendly:** Your phone simply records audio and waits; all processing happens in the cloud.
 * **Your Own API Key:** Keys are never hardcoded. You manage your key inside the app, stored in app-private `SharedPreferences` on your device. It is not encrypted at rest, and it never leaves the phone except in calls to Groq.
-* **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.8.3** for this release).
+* **Dynamic Version Display:** Always know exactly which build you are running with a clean, dynamically generated version label (shows **v2.8.4** for this release).
 * **Editable Jargon Dictionary:** Save custom vocabulary to ensure highly accurate transcriptions for industry-specific terms. Accessed via its own dedicated button on the main screen.
 * **Full Local History:** Structured on-device history for each note (timestamp, duration when available, raw text, and polished text when polished). Browse a clean list with date/time and preview, **search by keyword**, open a detail view to copy, share, re-polish, edit/save, delete, or export a single note. Export the entire history as plain text via the system share sheet. Storage is local only (JSON under app Documents; legacy plain-text logs are migrated automatically).
 * **Material Design Icon:** Minimal adaptive vector launcher icon, correctly centred inside the circular mask, with a monochrome layer for Android 13+ themed icons.
@@ -199,7 +199,11 @@ Aggressive battery savers can kill background work. While recording, keep Stow's
 * "No active internet connection" means Wi‑Fi or mobile data is unavailable—reconnect and use **Retry last upload**.
 * Corporate or captive portals that block `api.groq.com` will prevent transcription and polish.
 * "Recording too large to upload" means the clip exceeded Groq's ~25 MB limit (over two hours at Stow's bitrate). The audio is kept, but it needs splitting before it can be sent.
-* The saved audio is cleared once any transcription succeeds, so only the most recent failure is ever retryable.
+* Every failed upload waits in a queue, and **Retry** sends them all, oldest first. Each note lands in History as it is transcribed, and the last one opens on the result screen. If one fails, the run stops there and the rest stay queued.
+* To drop recordings that are waiting, such as one too large to send, press and hold the **Retry** button and confirm. Nothing else deletes them.
+* You can start the next recording while the last one is still uploading. It joins the queue behind it and is sent in the same run.
+* Recordings that have not been transcribed are stored in the app's private storage, which Android does not clear when the phone runs low on space. **Clear saved audio** in Settings leaves them alone.
+* A long note can take a few minutes to upload and transcribe. Stow waits up to five minutes for Groq's answer.
 
 ### Permissions and notifications
 * **POST_NOTIFICATIONS** is required for the recording notification, the pause/resume controls, and the "Transcription ready" hand-off. Denying it on Android 13+ blocks recording entirely.

@@ -48,7 +48,14 @@ None of this is verifiable in CI. A general "record, transcribe, read the result
 | Polish a real note on `openai/gpt-oss-20b` | v2.8's whole point. Confirm the output still reads like Clean prose and does not arrive truncated — a reasoning model spends part of the token budget thinking | ⬜ |
 | Task capture on the new model | It restructures rather than cleans, so it exercises the longer generation path | ⬜ |
 | Put a junk id in **Settings → Polish model** | The failure dialog should name the junk id and the raw transcript should survive | ⬜ |
-| Quick Settings tile start/stop | Never exercised on a device | ⬜ |
+| Quick Settings tile start/stop | Never exercised on a device. Android 14 restricts starting a microphone service from the background, and whether a tile tap is exempt is unconfirmed | ⬜ |
+| A note of 30 minutes or more uploads and transcribes | v2.8.4's timeout fix. The reason for the release | ⬜ |
+| Record, lock the screen, stop from the notification, unlock | v2.8.4: the result screen opens with the text copied and the button reads Start Recording | ⬜ |
+| Start from the tile, then open Stow | v2.8.4: the screen shows Stop Recording and a timer at the right elapsed time | ⬜ |
+| Rotate the phone mid-recording | v2.8.4: the timer and Stop Recording survive | ⬜ |
+| Airplane mode, record two notes, reconnect, **Retry 2 uploads** | v2.8.4: both reach History, the second opens on screen | ⬜ |
+| Upgrade from 2.8.3 with a failed upload waiting | v2.8.4: Retry still offers it | ⬜ |
+| **Share audio** on a note recorded with 2.8.4 | Recordings moved folders, and sharing goes through a new FileProvider path | ⬜ |
 | Launcher icon against other home-screen icons | Geometry is correct; visual weight is a judgement call | ⬜ |
 
 ### 3. Tune the quality thresholds against real recordings

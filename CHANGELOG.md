@@ -4,6 +4,33 @@ All notable changes to Stow. Format loosely follows [Keep a Changelog](https://k
 
 Versions before 2.5 are reconstructed from git history and are less detailed.
 
+## [2.8.4] — 2026-11-23
+
+Reliability for long notes and for bad signal. The fixes come from a code review on 2026-11-23 and an independent check of the change itself. None of them has run on a phone yet: the build passes and the unit tests pass, and the device checks are listed in [docs/roadmap.md](docs/roadmap.md).
+
+### Fixed
+- **Long notes no longer time out on upload.** The recording path sent audio with a default network client, which gives up after 10 seconds of waiting. Groq sends nothing back until it has decoded the whole file, and that takes longer than 10 seconds once a note runs past twenty minutes or so. The automatic retry then uploaded the whole file again and hit the same limit. A weak connection could trip it on a note of any length, by stalling for 10 seconds mid-upload. The recording path now uses the client **Re-transcribe** already had: 5 minutes for Groq's answer, 2 minutes for a stalled write.
+- **Stopping from the notification no longer leaves the app stuck.** The main screen stops listening whenever the phone is locked or another app is in front. If you stopped a recording from the lock-screen notification, the note was transcribed and saved to History, but the screen came back showing **Stop Recording** with the timer still running, the text was never shown or copied, and the button did nothing. The screen now reads what the service is doing each time it comes back. That also fixes three relatives: rotating the phone mid-recording lost the timer and the Stop button, a recording started from the Quick Settings tile showed as not recording in the app, and an upload that failed in the background said nothing until you noticed the Retry button.
+- **The Quick Settings tile cannot get stuck on "Recording".** It read a saved flag that outlived a crash. It now asks the service.
+- **A second failed upload no longer strands the first.** Stow remembered one failed recording. Dictate two notes in a dead zone and the first one's audio sat on the phone with nothing in the app pointing at it, until it was pruned. Failed uploads now wait in a queue. The button reads **Retry 3 uploads** and sends them oldest first, each note is saved to History as it lands, and the last one opens on the result screen. If one fails, the run stops and the rest stay queued. A retry waiting from 2.8.3 carries over.
+- **Recordings waiting for upload are safe from storage cleanup.** They were written to the app's cache folder, which Android may empty when the phone runs low on space. They are now written to the app's private files, and kept out of Android's automatic backup. **Clear saved audio** in Settings no longer deletes a recording that has not been transcribed.
+
+- **Starting a new recording while the last one uploads no longer risks either of them.** The upload finishing used to stop the service under the new recording. That window was 10 seconds and the timeout fix above would have stretched it to minutes, so it is closed in the same release: there is one upload at a time, a recording that stops while another is uploading joins the queue behind it, and the service stops only when it is neither recording nor uploading.
+- **Reopening Stow during an upload no longer offers that same recording as "unfinished".** Accepting the offer uploaded it twice. Declining deleted it mid-upload.
+- **A dropped connection while reading Groq's answer is now a failed upload**, with the audio kept. It used to leave the "Uploading" notification up for good.
+
+### Added
+- **Press and hold Retry to discard what is waiting.** It asks first. It is the only way to drop a recording that can never be sent, since **Clear saved audio** now leaves the queue alone.
+
+### Not in this release
+- **A recording is still lost if Stow dies while recording.** The audio file only becomes playable when recording stops. Fixing it changes how audio is captured, which cannot be judged without listening to the result on a phone, so it waits for a session with the phone in hand.
+- **Recordings over about 1 hour 45 minutes** still exceed Groq's 25 MB limit and cannot be split in the app. They no longer block the queue behind them.
+- **Retries still wait for a tap.** Nothing sends the queue on its own when signal returns.
+
+### Notes
+- **[Stow Web](https://github.com/mds08011/stow-web) received the v2.8.1 polish fix in the same sitting.** It had the `max_tokens` floor and not the 2048-token reasoning allowance, and it tested for empty output before the token cap, so a web polish could still fail on a note over about a minute and report it as "no content". The v2.8.1 note below says Stow Web sends no `max_tokens`. That was not true of the code then deployed.
+- **A third app has been started: Stow for iOS**, a scaffold in its own repository. It was built with the upload queue and safe storage from the start.
+
 ## [2.8.3] — 2026-10-05
 
 Dark mode is readable again. Light mode is unchanged.
