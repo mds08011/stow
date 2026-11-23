@@ -86,11 +86,13 @@ A service-side clipboard write is *not* a substitute — Android 10+ blocks clip
 
 | Field | Meaning |
 |---|---|
-| `liveState` | `idle`, `recording`, `paused` or `uploading`. Set to idle by every `STATE_ERROR` and `STATE_SUCCESS` broadcast |
+| `liveState` | `idle`, `recording`, `paused` or `uploading`. Worked out from what the service is doing (recording wins over uploading) each time that changes, on the main thread |
 | `liveActiveMillis()` | Recorded time with pauses excluded, for the timer |
 | `liveRouteLabel`, `liveRouteSampleRate` | The microphone line |
 | `liveLastError` | The last error broadcast, until a screen has shown it |
 | `uploadInFlight` | True while an upload or a run of them is going. Separate from `liveState` because a new recording can start during an upload, and then the state reads `recording` |
+
+Everything that ends an upload run (the broadcast, the live state, stopping the service) runs on the main thread, where recordings start and stop. When a run ends while a newer recording has the screen, nothing is broadcast: the note is in history, a notification says so, and it is counted into the next result's "earlier ones are in History" message. A failure in that position is held in `liveLastError` and shown with the next result or on the next return to the app.
 
 There is one upload at a time. A recording that stops while another is uploading joins the queue and the running chain picks it up. The service stops only when it is neither recording nor uploading, and that check runs on the main thread. While `uploadInFlight` is true the activity hides Retry, does not offer the checkpoint as an unfinished recording, and leaves `pending_result_id` unclaimed.
 
@@ -106,6 +108,6 @@ Shared preferences crossing the process boundary (all in `StowPrefs`):
 | _(files)_ `Documents/responses/<entryId>.json` | service | manual troubleshooting; capped at 20, oldest pruned |
 | _(files)_ `files/audio/audio_<ts>.m4a` | service | Share audio / Re-transcribe; newest 5 kept for 7 days, plus every recording not yet transcribed. Versions before 2.8.4 wrote to `cache/`, and those files are still found there |
 | `ui_visible` | activity | service (whether to notify) |
-| `upload_queue` | service, activity | activity (Retry button), service (retry run). JSON list of recordings awaiting upload; see `UploadQueue` |
+| `upload_queue` | service, activity | activity (Retry button), service (retry run). JSON list of recordings awaiting upload. See `UploadQueue` |
 | `failed_audio_path`, `failed_audio_duration` | nobody since v2.8.4 | `UploadQueue.load`, once, to carry a pre-2.8.4 retry into the queue |
 | `selected_polish_preset`, `polish_presets` | activity | activity |

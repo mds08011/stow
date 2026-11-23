@@ -127,6 +127,10 @@ object TranscriptionHistory {
         }
     }
 
+    // add, update and delete each read the list, change it and write it back. They are
+    // synchronized as a whole because the service adds from a network thread while the
+    // screen updates from the main thread, and an unguarded overlap drops one of the two.
+    @Synchronized
     fun add(
         context: Context,
         rawText: String,
@@ -162,6 +166,7 @@ object TranscriptionHistory {
         return entry
     }
 
+    @Synchronized
     fun update(context: Context, entry: Entry): Boolean {
         val entries = loadEntries(context).toMutableList()
         val index = entries.indexOfFirst { it.id == entry.id }
@@ -171,6 +176,7 @@ object TranscriptionHistory {
         return true
     }
 
+    @Synchronized
     fun delete(context: Context, id: String): Boolean {
         val entries = loadEntries(context).toMutableList()
         val removed = entries.removeAll { it.id == id }

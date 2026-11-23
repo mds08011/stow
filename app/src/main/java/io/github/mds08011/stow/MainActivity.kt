@@ -163,6 +163,7 @@ class MainActivity : AppCompatActivity() {
                         // Not simply hidden: a recording too large to send may still be waiting.
                         refreshRetryButton()
 
+                        surfaceHeldError()
                         val batch = intent.getIntExtra(RecordingService.EXTRA_BATCH_COUNT, 0)
                         if (batch > 1) {
                             Toast.makeText(
@@ -384,8 +385,27 @@ class MainActivity : AppCompatActivity() {
         // First: everything below depends on isRecording being true to life.
         syncWithService()
         consumePendingResult()
+        surfaceHeldError()
         refreshRetryButton()
         offerUnfinishedRecording()
+    }
+
+    /**
+     * Reports an upload failure that no screen has shown yet: one that happened in the
+     * background, or while a newer recording had the screen. Its audio is kept and the
+     * Retry button offers it. This is the reason. On the status line when that is free,
+     * as a toast when a result or a polish is using the screen. Left alone while the
+     * service is busy, and reported when it is done.
+     */
+    private fun surfaceHeldError() {
+        if (RecordingService.liveState != RecordingService.LIVE_IDLE || RecordingService.uploadInFlight) return
+        val error = RecordingService.liveLastError ?: return
+        RecordingService.liveLastError = null
+        if (showingResult || isPolishing) {
+            Toast.makeText(this, "An earlier upload failed. $error", Toast.LENGTH_LONG).show()
+        } else {
+            setStatus(error)
+        }
     }
 
     /**
@@ -454,15 +474,9 @@ class MainActivity : AppCompatActivity() {
                 if (status == STATUS_RECORDING || status == STATUS_PAUSED || status == STATUS_UPLOADING) {
                     setStatus("")
                 }
-                // An upload that failed while nobody was looking. Its audio is kept and
-                // refreshRetryButton offers it. This is the reason. It is held back while
-                // a result is on screen, and shown once that result is left.
-                if (!showingResult) {
-                    RecordingService.liveLastError?.let { error ->
-                        RecordingService.liveLastError = null
-                        setStatus(error)
-                    }
-                }
+                // An upload that failed while nobody was looking is reported by
+                // surfaceHeldError, at the end of onStart, once it is known whether a
+                // result is about to take the screen.
             }
         }
     }
@@ -501,7 +515,7 @@ class MainActivity : AppCompatActivity() {
         val path = sharedPreferences.getString(RecordingService.PREF_PENDING_AUDIO_PATH, null) ?: return
         val file = java.io.File(path)
         if (!file.exists()) {
-            clearUnfinishedRecording()
+            clearUnfinishedRecording(path)
             return
         }
 
@@ -527,11 +541,11 @@ class MainActivity : AppCompatActivity() {
                     "or stopped before the upload finished.\n\nThe audio is still here."
             )
             .setPositiveButton("Transcribe it") { _, _ ->
-                clearUnfinishedRecording()
+                clearUnfinishedRecording(path)
                 startRetryUpload(path, durationSeconds)
             }
             .setNegativeButton("Discard") { _, _ ->
-                clearUnfinishedRecording()
+                clearUnfinishedRecording(path)
                 file.delete()
                 Toast.makeText(this, "Recording discarded", Toast.LENGTH_SHORT).show()
             }
@@ -539,7 +553,12 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun clearUnfinishedRecording() {
+    /**
+     * Clears the checkpoint only if it still names [path]. The dialog can sit open while
+     * a recording made from the tile stops and takes the checkpoint over.
+     */
+    private fun clearUnfinishedRecording(path: String) {
+        if (sharedPreferences.getString(RecordingService.PREF_PENDING_AUDIO_PATH, null) != path) return
         sharedPreferences.edit()
             .remove(RecordingService.PREF_PENDING_AUDIO_PATH)
             .remove(RecordingService.PREF_PENDING_AUDIO_DURATION)
@@ -624,8 +643,10 @@ class MainActivity : AppCompatActivity() {
         // in turn, and showing one mid-run would start a polish, or accept edits, that the
         // run's last note then lands on top of. The id is left for the end of the run.
         if (RecordingService.uploadInFlight) return
-        clearPendingResult()
+        // Nor while recording. The id and its notification are left in place, so a note
+        // that landed during this recording can still be picked up afterwards.
         if (isRecording) return
+        clearPendingResult()
 
         val entry = TranscriptionHistory.getById(this, pendingId) ?: return
 
