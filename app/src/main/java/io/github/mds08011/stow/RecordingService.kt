@@ -75,8 +75,65 @@ class RecordingService : Service() {
         const val PREF_PENDING_AUDIO_PATH = "pending_audio_path"
         const val PREF_PENDING_AUDIO_DURATION = "pending_audio_duration"
         const val PREF_PENDING_AUDIO_AT = "pending_audio_at"
-        /** Read by the Quick Settings tile, which has no binding to this service. */
-        const val PREF_IS_RECORDING = "is_recording"
+
+        // --- Live state -----------------------------------------------------------
+        //
+        // What the service is doing right now, for the two things that cannot rely on
+        // having heard every broadcast: MainActivity, whose receiver is unregistered
+        // whenever the screen is off or another app is in front, and the Quick Settings
+        // tile, which has no binding to this service.
+        //
+        // Held in memory on purpose. The activity, the tile and the service share one
+        // process, so if that process dies this resets to idle with it. The preference
+        // flag this replaces (`is_recording`) survived the process and could say
+        // "recording" forever after a crash.
+
+        const val LIVE_IDLE = "idle"
+        const val LIVE_RECORDING = "recording"
+        const val LIVE_PAUSED = "paused"
+        const val LIVE_UPLOADING = "uploading"
+
+        @Volatile
+        var liveState: String = LIVE_IDLE
+            private set
+        @Volatile
+        private var liveAccumulatedMillis = 0L
+        @Volatile
+        private var liveSegmentStartElapsed = 0L
+        @Volatile
+        var liveRouteLabel: String? = null
+            private set
+        @Volatile
+        var liveRouteSampleRate: Int? = null
+            private set
+
+        /**
+         * The last error broadcast, kept until a screen has shown it. An upload that fails
+         * while Stow is in the background broadcasts into an unregistered receiver;
+         * MainActivity reads this on its way back and clears it.
+         */
+        @Volatile
+        var liveLastError: String? = null
+
+        /** True from start to stop, paused or not. */
+        fun isCapturing(): Boolean = liveState == LIVE_RECORDING || liveState == LIVE_PAUSED
+
+        /** Recorded time so far with paused stretches excluded; what the timer should show. */
+        fun liveActiveMillis(
+            nowElapsed: Long = android.os.SystemClock.elapsedRealtime()
+        ): Long = activeMillis(liveState, liveAccumulatedMillis, liveSegmentStartElapsed, nowElapsed)
+
+        /** Pure form of [liveActiveMillis], separate so it can be unit tested. */
+        internal fun activeMillis(
+            state: String,
+            accumulatedMillis: Long,
+            segmentStartElapsed: Long,
+            nowElapsed: Long
+        ): Long = when (state) {
+            LIVE_RECORDING -> accumulatedMillis + (nowElapsed - segmentStartElapsed).coerceAtLeast(0L)
+            LIVE_PAUSED -> accumulatedMillis
+            else -> 0L
+        }
 
         /** Groq's free tier rejects larger uploads; stay clear of the 25 MB ceiling. */
         private const val MAX_UPLOAD_BYTES = 24L * 1024 * 1024
@@ -212,6 +269,29 @@ class RecordingService : Service() {
         return START_NOT_STICKY
     }
 
+    /** Copies this recording's clock into the companion so other components can read it. */
+    private fun publishLive(state: String) {
+        liveAccumulatedMillis = accumulatedActiveMillis
+        liveSegmentStartElapsed = segmentStartMillis
+        liveState = state
+    }
+
+    override fun onDestroy() {
+        // Only reachable mid-recording if the system destroys the service without killing
+        // the process. Never leave the tile or the activity believing in a dead recorder.
+        if (isCapturing()) {
+            try {
+                mediaRecorder?.release()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            mediaRecorder = null
+            isRecording = false
+            liveState = LIVE_IDLE
+        }
+        super.onDestroy()
+    }
+
     private fun startRecording() {
         if (isRecording) return
         
@@ -252,18 +332,20 @@ class RecordingService : Service() {
                 prepare()
                 start()
                 isRecording = true
-                setRecordingFlag(true)
                 isPaused = false
                 accumulatedActiveMillis = 0L
                 segmentStartMillis = android.os.SystemClock.elapsedRealtime()
                 startTimeMillis = segmentStartMillis
                 routeLabel = null
                 routeSampleRate = null
+                liveRouteLabel = null
+                liveRouteSampleRate = null
+                liveLastError = null
+                publishLive(LIVE_RECORDING)
                 broadcastState(STATE_RECORDING)
                 resolveRoutedDevice(retry = true)
             } catch (e: Exception) {
                 e.printStackTrace()
-                setRecordingFlag(false)
                 broadcastState(STATE_ERROR, "Failed to start recording")
                 stopSelf()
             }
@@ -342,6 +424,8 @@ class RecordingService : Service() {
     }
 
     private fun broadcastRoute() {
+        liveRouteLabel = routeLabel
+        liveRouteSampleRate = routeSampleRate
         val intent = Intent(BROADCAST_STATE).apply {
             setPackage(packageName)
             putExtra(EXTRA_STATE, STATE_ROUTE)
@@ -395,6 +479,7 @@ class RecordingService : Service() {
             mediaRecorder?.pause()
             isPaused = true
             accumulatedActiveMillis += android.os.SystemClock.elapsedRealtime() - segmentStartMillis
+            publishLive(LIVE_PAUSED)
             updateRecordingNotification(paused = true)
             broadcastState(STATE_PAUSED, durationSeconds = activeSeconds())
         } catch (e: Exception) {
@@ -409,6 +494,7 @@ class RecordingService : Service() {
             mediaRecorder?.resume()
             isPaused = false
             segmentStartMillis = android.os.SystemClock.elapsedRealtime()
+            publishLive(LIVE_RECORDING)
             updateRecordingNotification(paused = false)
             broadcastState(STATE_RESUMED, durationSeconds = activeSeconds())
         } catch (e: Exception) {
@@ -438,8 +524,8 @@ class RecordingService : Service() {
             val durationSeconds = activeSeconds()
             mediaRecorder = null
             isRecording = false
-            setRecordingFlag(false)
             isPaused = false
+            liveState = LIVE_UPLOADING
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(RECORDING_NOTIFICATION_ID, buildUploadingNotification())
@@ -454,7 +540,6 @@ class RecordingService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
             isRecording = false
-            setRecordingFlag(false)
             broadcastState(STATE_ERROR, "Failed to stop recording")
             stopForeground(true)
             stopSelf()
@@ -603,6 +688,7 @@ class RecordingService : Service() {
         } else {
             startForeground(RECORDING_NOTIFICATION_ID, buildUploadingNotification())
         }
+        liveState = LIVE_UPLOADING
         broadcastState(STATE_LOADING)
         sendAudioToGroq(file, duration)
     }
@@ -745,6 +831,14 @@ class RecordingService : Service() {
         durationSeconds: Int = -1,
         entryId: String? = null
     ) {
+        // Every error and every success ends the service's work, so the live state is
+        // settled here, before the broadcast, instead of at each of the dozen exits.
+        if (state == STATE_ERROR) {
+            liveLastError = text
+            liveState = LIVE_IDLE
+        } else if (state == STATE_SUCCESS) {
+            liveState = LIVE_IDLE
+        }
         val intent = Intent(BROADCAST_STATE).apply {
             setPackage(packageName)
             putExtra(EXTRA_STATE, state)
@@ -766,12 +860,6 @@ class RecordingService : Service() {
 
     private fun prefs(): SharedPreferences =
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    /** Committed synchronously so the tile never reads a stale value right after a tap. */
-    @Suppress("ApplySharedPref")
-    private fun setRecordingFlag(recording: Boolean) {
-        prefs().edit().putBoolean(PREF_IS_RECORDING, recording).commit()
-    }
 
     /** Tappable hand-off when the transcription finished with no UI on screen. */
     private fun showResultReadyNotification(text: String) {

@@ -64,8 +64,9 @@ class RecordingTileService : TileService() {
     private fun prefs() =
         getSharedPreferences(RecordingService.PREFS_NAME, Context.MODE_PRIVATE)
 
-    private fun isRecording(): Boolean =
-        prefs().getBoolean(RecordingService.PREF_IS_RECORDING, false)
+    // The service's in-memory state, which resets with the process. The preference flag
+    // this used to read outlived a crash and left the tile stuck on "Recording".
+    private fun isRecording(): Boolean = RecordingService.isCapturing()
 
     private fun isReadyToRecord(): Boolean {
         if (prefs().getString("api_key", "").isNullOrBlank()) return false

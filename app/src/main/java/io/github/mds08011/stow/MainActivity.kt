@@ -90,7 +90,7 @@ class MainActivity : AppCompatActivity() {
                         isRecording = true
                         showingResult = false
                         btnRecord.text = "Stop Recording"
-                        setStatus("Recording...")
+                        setStatus(STATUS_RECORDING)
                         etTranscription.setText("")
                         isPaused = false
                         btnRetryUpload.visibility = View.GONE
@@ -121,7 +121,7 @@ class MainActivity : AppCompatActivity() {
                     RecordingService.STATE_PAUSED -> {
                         isPaused = true
                         updatePauseButton()
-                        setStatus("Recording paused")
+                        setStatus(STATUS_PAUSED)
                         // Freeze the display at the elapsed active time.
                         chronometer.stop()
                         val elapsed = intent.getIntExtra(RecordingService.EXTRA_DURATION, 0)
@@ -130,7 +130,7 @@ class MainActivity : AppCompatActivity() {
                     RecordingService.STATE_RESUMED -> {
                         isPaused = false
                         updatePauseButton()
-                        setStatus("Recording...")
+                        setStatus(STATUS_RECORDING)
                         val elapsed = intent.getIntExtra(RecordingService.EXTRA_DURATION, 0)
                         chronometer.base = SystemClock.elapsedRealtime() - elapsed * 1000L
                         chronometer.start()
@@ -140,7 +140,7 @@ class MainActivity : AppCompatActivity() {
                         isPaused = false
                         updatePauseButton()
                         btnRecord.text = "Start Recording"
-                        setStatus("Uploading and Transcribing...")
+                        setStatus(STATUS_UPLOADING)
                         btnPolish.isEnabled = false
                         chronometer.stop()
                         chronometer.base = SystemClock.elapsedRealtime()
@@ -180,6 +180,8 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     RecordingService.STATE_ERROR -> {
+                        // Shown here, so there is nothing left for onStart to catch up on.
+                        RecordingService.liveLastError = null
                         isRecording = false
                         isPaused = false
                         updatePauseButton()
@@ -358,9 +360,98 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(receiver, filter)
         }
         sharedPreferences.edit().putBoolean(RecordingService.PREF_UI_VISIBLE, true).apply()
+        // First: the two calls below both depend on isRecording being true to life.
+        syncWithService()
         consumePendingResult()
         refreshRetryButton()
         offerUnfinishedRecording()
+    }
+
+    /**
+     * Brings the screen back in line with what the service is really doing.
+     *
+     * The receiver is unregistered in onStop, so every state change that happens with the
+     * screen off or another app in front is missed: a stop from the notification, a start
+     * or stop from the Quick Settings tile, a pause, an upload finishing or failing. The
+     * broadcasts are not replayed, so this reads the service's live state instead.
+     *
+     * Before v2.8.4 nothing did. Stopping from the lock-screen notification left this
+     * activity believing it was still recording: the result was saved to history but never
+     * shown or copied, the timer kept running, and Stop Recording did nothing. Rotating the
+     * phone mid-recording lost the state the same way.
+     */
+    private fun syncWithService() {
+        when (RecordingService.liveState) {
+            RecordingService.LIVE_RECORDING, RecordingService.LIVE_PAUSED -> {
+                val paused = RecordingService.liveState == RecordingService.LIVE_PAUSED
+                if (!isRecording) {
+                    // A take this screen never saw begin, such as one started from the
+                    // tile. Same reset the STATE_RECORDING broadcast performs, plus saving
+                    // any edits to the result that was on screen.
+                    if (showingResult) prepareForNewRecording()
+                    etTranscription.setText("")
+                    btnRetryUpload.visibility = View.GONE
+                    btnPolish.isEnabled = false
+                    lastRawTranscription = ""
+                    lastDurationSeconds = null
+                    lastHistoryEntryId = null
+                    resultShowsPolished = false
+                }
+                isRecording = true
+                isPaused = paused
+                showRecordingUi()
+                btnRecord.text = "Stop Recording"
+                updatePauseButton()
+                setStatus(if (paused) STATUS_PAUSED else STATUS_RECORDING)
+
+                chronometer.base = SystemClock.elapsedRealtime() - RecordingService.liveActiveMillis()
+                if (paused) chronometer.stop() else chronometer.start()
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+                lastRouteLabel = RecordingService.liveRouteLabel
+                lastRouteSampleRate = RecordingService.liveRouteSampleRate
+                if (lastRouteLabel == null && lastRouteSampleRate == null) {
+                    tvMicIndicator.text = "Mic: checking…"
+                } else {
+                    updateMicIndicator()
+                }
+            }
+            RecordingService.LIVE_UPLOADING -> {
+                if (isRecording) leaveRecordingUi()
+                // An upload this screen never saw start, with an older result still up.
+                if (showingResult) {
+                    prepareForNewRecording()
+                    showRecordingUi()
+                }
+                setStatus(STATUS_UPLOADING)
+                btnPolish.isEnabled = false
+            }
+            else -> {
+                if (isRecording) leaveRecordingUi()
+                // A status line describing work that has since ended.
+                val status = tvStatus.text?.toString().orEmpty()
+                if (status == STATUS_RECORDING || status == STATUS_PAUSED || status == STATUS_UPLOADING) {
+                    setStatus("")
+                }
+                // An upload that failed while nobody was looking. Its audio is kept, and
+                // refreshRetryButton offers it; this is the reason.
+                RecordingService.liveLastError?.let { error ->
+                    RecordingService.liveLastError = null
+                    if (!showingResult) setStatus(error)
+                }
+            }
+        }
+    }
+
+    /** Puts the record button, timer and pause control back to their not-recording state. */
+    private fun leaveRecordingUi() {
+        isRecording = false
+        isPaused = false
+        updatePauseButton()
+        btnRecord.text = "Start Recording"
+        chronometer.stop()
+        chronometer.base = SystemClock.elapsedRealtime()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     /**
@@ -452,7 +543,7 @@ class MainActivity : AppCompatActivity() {
         }
         btnRetryUpload.visibility = View.GONE
         stopRetryCountdown()
-        setStatus("Uploading and Transcribing...")
+        setStatus(STATUS_UPLOADING)
     }
 
     override fun onStop() {
@@ -2093,6 +2184,11 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_POLISH_MODEL = "polish_model"
         private const val PREF_ASKED_BATTERY_OPT = "asked_battery_opt"
         private const val SEARCH_DEBOUNCE_MILLIS = 250L
+
+        // Named because syncWithService has to recognise a status line that has gone stale.
+        private const val STATUS_RECORDING = "Recording..."
+        private const val STATUS_PAUSED = "Recording paused"
+        private const val STATUS_UPLOADING = "Uploading and Transcribing..."
 
         private const val STATE_SHOWING_RESULT = "showingResult"
         private const val STATE_SHOWS_POLISHED = "resultShowsPolished"
