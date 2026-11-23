@@ -71,6 +71,8 @@ class MainActivity : AppCompatActivity() {
 
     private val countdownHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var countdownRunnable: Runnable? = null
+    /** How many recordings are waiting behind the Retry button. */
+    private var waitingUploads = 0
     private var lastRawTranscription: String = ""
     private var lastDurationSeconds: Int? = null
     private var lastHistoryEntryId: String? = null
@@ -156,7 +158,17 @@ class MainActivity : AppCompatActivity() {
                         // creating a second one, and mark the hand-off as claimed.
                         lastHistoryEntryId = intent.getStringExtra(RecordingService.EXTRA_ENTRY_ID)
                         clearPendingResult()
-                        btnRetryUpload.visibility = View.GONE
+                        // Not simply hidden: a recording too large to send may still be waiting.
+                        refreshRetryButton()
+
+                        val batch = intent.getIntExtra(RecordingService.EXTRA_BATCH_COUNT, 0)
+                        if (batch > 1) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "$batch notes transcribed. The earlier ones are in History.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
 
                         val usage = intent.getIntExtra(RecordingService.EXTRA_USAGE, -1)
                         if (usage != -1) {
@@ -465,9 +477,9 @@ class MainActivity : AppCompatActivity() {
      */
     private fun offerUnfinishedRecording() {
         if (isRecording || isPolishing) return
-        // A completed-but-unclaimed result, or a clean failure, both take precedence.
+        // A completed-but-unclaimed result takes precedence. Uploads waiting behind Retry
+        // do not: since v2.8.4 they are a queue, and this recording can join it.
         if (sharedPreferences.getString(RecordingService.PREF_PENDING_RESULT_ID, null) != null) return
-        if (sharedPreferences.getString(RecordingService.PREF_FAILED_AUDIO_PATH, null) != null) return
 
         val path = sharedPreferences.getString(RecordingService.PREF_PENDING_AUDIO_PATH, null) ?: return
         val file = java.io.File(path)
@@ -517,15 +529,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Hands a stored recording back to the service. The service reads the path from the
-     * failed_* keys, so a crash-recovered recording is promoted into that slot first.
+     * Hands a stored recording back to the service. The service sends whatever is in the
+     * upload queue, so a crash-recovered recording joins it first.
      */
     private fun startRetryUpload(path: String, durationSeconds: Int) {
-        sharedPreferences.edit()
-            .putString(RecordingService.PREF_FAILED_AUDIO_PATH, path)
-            .putInt(RecordingService.PREF_FAILED_AUDIO_DURATION, durationSeconds)
-            .remove(RecordingService.PREF_FAILED_RETRY_AT)
-            .apply()
+        UploadQueue.save(
+            sharedPreferences,
+            UploadQueue.addOrMoveToBack(
+                UploadQueue.load(sharedPreferences),
+                UploadQueue.Item(path, durationSeconds, System.currentTimeMillis())
+            )
+        )
+        sharedPreferences.edit().remove(RecordingService.PREF_FAILED_RETRY_AT).apply()
         dispatchRetryUpload()
     }
 
@@ -719,15 +734,16 @@ class MainActivity : AppCompatActivity() {
 
     /** Offers the retry only while a failed upload's audio is still on disk. */
     private fun refreshRetryButton() {
-        val path = sharedPreferences.getString(RecordingService.PREF_FAILED_AUDIO_PATH, null)
-        val available = path != null && java.io.File(path).exists()
-        if (!available && path != null) {
-            sharedPreferences.edit()
-                .remove(RecordingService.PREF_FAILED_AUDIO_PATH)
-                .remove(RecordingService.PREF_FAILED_AUDIO_DURATION)
-                .remove(RecordingService.PREF_FAILED_RETRY_AT)
-                .apply()
+        val queue = UploadQueue.load(sharedPreferences)
+        val present = queue.filter { java.io.File(it.path).exists() }
+        if (present.size != queue.size) {
+            UploadQueue.save(sharedPreferences, present)
+            if (present.isEmpty()) {
+                sharedPreferences.edit().remove(RecordingService.PREF_FAILED_RETRY_AT).apply()
+            }
         }
+        waitingUploads = present.size
+        val available = present.isNotEmpty()
         btnRetryUpload.visibility = if (available && !isRecording) View.VISIBLE else View.GONE
         if (btnRetryUpload.visibility == View.VISIBLE) {
             tickRetryCountdown()
@@ -750,7 +766,11 @@ class MainActivity : AppCompatActivity() {
         val remainingMillis = retryAt - System.currentTimeMillis()
         if (remainingMillis <= 0) {
             btnRetryUpload.isEnabled = true
-            btnRetryUpload.text = "Retry last upload"
+            btnRetryUpload.text = if (waitingUploads > 1) {
+                "Retry $waitingUploads uploads"
+            } else {
+                "Retry last upload"
+            }
             return
         }
 
