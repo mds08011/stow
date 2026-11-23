@@ -28,8 +28,14 @@ class RecordingService : Service() {
 
     private var mediaRecorder: MediaRecorder? = null
     private var audioFile: File? = null
-    // Shared with the re-transcribe path for its timeouts; see AudioTranscriber.client.
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    /** Guards the hand-off between "is an upload running" and "what does it send next". */
+    private val chainLock = Any()
+    /** Microphone and sample rate per recording, held from stop until its note is saved. */
+    private val routes = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, Int?>>()
+    // Shared with the re-transcribe path for its timeouts. See AudioTranscriber.client.
     private val client get() = AudioTranscriber.client
+    @Volatile
     private var isRecording = false
     private var startTimeMillis = 0L
 
@@ -74,8 +80,8 @@ class RecordingService : Service() {
         /**
          * Set the moment recording stops, before the first upload attempt. Survives the
          * process being killed mid-upload, which is the one window where audio exists on
-         * disk but nothing in the app points at it. Cleared on success, and swapped for the
-         * failed_* keys on a clean failure, so the two are mutually exclusive.
+         * disk but nothing in the app points at it. Cleared on success, and on a clean
+         * failure, when the recording joins [UploadQueue] instead.
          */
         const val PREF_PENDING_AUDIO_PATH = "pending_audio_path"
         const val PREF_PENDING_AUDIO_DURATION = "pending_audio_duration"
@@ -114,16 +120,25 @@ class RecordingService : Service() {
 
         /**
          * The last error broadcast, kept until a screen has shown it. An upload that fails
-         * while Stow is in the background broadcasts into an unregistered receiver;
+         * while Stow is in the background broadcasts into an unregistered receiver.
          * MainActivity reads this on its way back and clears it.
          */
         @Volatile
         var liveLastError: String? = null
 
+        /**
+         * True while an upload, or a run of them, is in flight. Separate from [liveState]
+         * because a new recording can be started while the last one is still uploading,
+         * and then the state reads "recording".
+         */
+        @Volatile
+        var uploadInFlight = false
+            private set
+
         /** True from start to stop, paused or not. */
         fun isCapturing(): Boolean = liveState == LIVE_RECORDING || liveState == LIVE_PAUSED
 
-        /** Recorded time so far with paused stretches excluded; what the timer should show. */
+        /** Recorded time so far with paused stretches excluded. This is what the timer shows. */
         fun liveActiveMillis(
             nowElapsed: Long = android.os.SystemClock.elapsedRealtime()
         ): Long = activeMillis(liveState, liveAccumulatedMillis, liveSegmentStartElapsed, nowElapsed)
@@ -283,10 +298,14 @@ class RecordingService : Service() {
     @Volatile
     private var runSuccesses = 0
 
+    @Volatile
     private var apiKey: String = ""
+    @Volatile
     private var jargon: String = ""
+    @Volatile
     private var deferClipboard: Boolean = false
 
+    @Volatile
     private var isPaused = false
     /** Recording time excluding paused stretches, so usage and duration stay honest. */
     private var accumulatedActiveMillis = 0L
@@ -326,10 +345,32 @@ class RecordingService : Service() {
         liveState = state
     }
 
+    /**
+     * Works the live state out from what the service is actually doing. Recording wins
+     * over uploading, because the two can overlap and the recording is what the screen
+     * and the tile have to show.
+     */
+    private fun settleLiveState() {
+        liveState = when {
+            isRecording && isPaused -> LIVE_PAUSED
+            isRecording -> LIVE_RECORDING
+            uploadInFlight -> LIVE_UPLOADING
+            else -> LIVE_IDLE
+        }
+    }
+
+    /** Stops the service only when it is neither recording nor uploading. Main thread only. */
+    private fun stopIfIdle() {
+        if (isRecording || uploadInFlight) return
+        stopForeground(true)
+        stopSelf()
+    }
+
     override fun onDestroy() {
         // Only reachable mid-recording if the system destroys the service without killing
-        // the process. Never leave the tile or the activity believing in a dead recorder.
-        if (isCapturing()) {
+        // the process. Release the recorder so the tile and the activity are not left
+        // showing a recording that nothing is making.
+        if (isRecording) {
             try {
                 mediaRecorder?.release()
             } catch (e: Exception) {
@@ -337,7 +378,8 @@ class RecordingService : Service() {
             }
             mediaRecorder = null
             isRecording = false
-            liveState = LIVE_IDLE
+            isPaused = false
+            settleLiveState()
         }
         super.onDestroy()
     }
@@ -397,7 +439,8 @@ class RecordingService : Service() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 broadcastState(STATE_ERROR, "Failed to start recording")
-                stopSelf()
+                // An upload may still be running, and it needs the service.
+                stopIfIdle()
             }
         }
     }
@@ -565,7 +608,7 @@ class RecordingService : Service() {
 
     private fun stopRecording() {
         if (!isRecording) return
-        
+
         try {
             mediaRecorder?.apply {
                 stop()
@@ -575,25 +618,55 @@ class RecordingService : Service() {
             mediaRecorder = null
             isRecording = false
             isPaused = false
-            liveState = LIVE_UPLOADING
+
+            val file = audioFile
+            if (file == null) {
+                settleLiveState()
+                stopIfIdle()
+                return
+            }
+            routes[file.absolutePath] = routeLabel to routeSampleRate
+
+            // One upload at a time. If the last note is still on its way, this one joins
+            // the queue behind it and the same run sends it. Starting a second upload
+            // beside the first is what used to let one of them stop the service under
+            // the other.
+            val joined = synchronized(chainLock) {
+                if (uploadInFlight) {
+                    val item = UploadQueue.Item(
+                        file.absolutePath,
+                        durationSeconds,
+                        System.currentTimeMillis()
+                    )
+                    UploadQueue.update(prefs()) { UploadQueue.addOrMoveToBack(it, item) }
+                    retryRun.add(item)
+                    true
+                } else {
+                    uploadInFlight = true
+                    retryRun.clear()
+                    runSuccesses = 0
+                    false
+                }
+            }
+            settleLiveState()
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(RECORDING_NOTIFICATION_ID, buildUploadingNotification())
 
             broadcastState(STATE_LOADING)
 
-            audioFile?.let {
-                // Checkpoint before the upload, not after it fails.
-                markRecordingPending(it, durationSeconds)
-                retryRun.clear()
-                runSuccesses = 0
-                sendAudioToGroq(it, durationSeconds)
+            if (!joined) {
+                // Checkpoint before the upload, not after it fails. A recording that
+                // joined the queue is already on record there.
+                markRecordingPending(file, durationSeconds)
+                sendAudioToGroq(file, durationSeconds)
             }
         } catch (e: Exception) {
             e.printStackTrace()
             isRecording = false
+            isPaused = false
             broadcastState(STATE_ERROR, "Failed to stop recording")
-            endUploads()
+            stopIfIdle()
         }
     }
 
@@ -614,13 +687,8 @@ class RecordingService : Service() {
     private fun recordUploadFailure(file: File, durationSeconds: Int, retryAfterSeconds: Long = 0) {
         if (!file.exists()) return
         val prefs = prefs()
-        UploadQueue.save(
-            prefs,
-            UploadQueue.addOrMoveToBack(
-                UploadQueue.load(prefs),
-                UploadQueue.Item(file.absolutePath, durationSeconds, System.currentTimeMillis())
-            )
-        )
+        val item = UploadQueue.Item(file.absolutePath, durationSeconds, System.currentTimeMillis())
+        UploadQueue.update(prefs) { UploadQueue.addOrMoveToBack(it, item) }
         clearRecordingPending(file)
         val edit = prefs.edit()
         if (retryAfterSeconds > 0) {
@@ -634,14 +702,14 @@ class RecordingService : Service() {
     /** A recording that was transcribed leaves the queue. Groq answered, so no wait applies. */
     private fun clearUploadFailure(file: File) {
         val prefs = prefs()
-        UploadQueue.save(prefs, UploadQueue.remove(UploadQueue.load(prefs), file.absolutePath))
+        UploadQueue.update(prefs) { UploadQueue.remove(it, file.absolutePath) }
         prefs.edit().remove(PREF_FAILED_RETRY_AT).apply()
     }
 
     /**
      * One failed upload: keep the audio, say why, and stop. A failure ends the whole run,
      * because whatever stopped this recording (no signal, a rate limit, a rejected key)
-     * would stop the ones behind it too.
+     * would stop the ones behind it too. They stay in the queue.
      */
     private fun failUpload(
         file: File,
@@ -655,15 +723,26 @@ class RecordingService : Service() {
             1 -> "1 earlier note was transcribed and saved to History.\n"
             else -> "$runSuccesses earlier notes were transcribed and saved to History.\n"
         }
-        broadcastState(STATE_ERROR, earlier + message)
         endUploads()
+        if (isRecording) {
+            // A new recording is under way. Its screen is not interrupted, and the
+            // reason is kept for when it is over. The Retry button will be there.
+            liveLastError = earlier + message
+        } else {
+            broadcastState(STATE_ERROR, earlier + message)
+        }
     }
 
-    /** The service has nothing left to send. */
+    /** Nothing left to send. The service stops unless a recording is using it. */
     private fun endUploads() {
-        retryRun.clear()
-        stopForeground(true)
-        stopSelf()
+        synchronized(chainLock) {
+            retryRun.clear()
+            uploadInFlight = false
+        }
+        settleLiveState()
+        // On the main thread, where recordings start and stop, so the check cannot
+        // interleave with a stop that is about to begin the next upload.
+        mainHandler.post { stopIfIdle() }
     }
 
     /**
@@ -673,7 +752,20 @@ class RecordingService : Service() {
      */
     @Suppress("ApplySharedPref")
     private fun markRecordingPending(file: File, durationSeconds: Int) {
-        prefs().edit()
+        // There is one checkpoint. If it still names an earlier recording, that one was
+        // cut off mid-upload and never claimed, and overwriting the pointer would orphan
+        // its audio. It joins the queue first.
+        val prefs = prefs()
+        val earlier = prefs.getString(PREF_PENDING_AUDIO_PATH, null)
+        if (earlier != null && earlier != file.absolutePath && File(earlier).exists()) {
+            val item = UploadQueue.Item(
+                earlier,
+                prefs.getInt(PREF_PENDING_AUDIO_DURATION, 0),
+                prefs.getLong(PREF_PENDING_AUDIO_AT, 0L)
+            )
+            UploadQueue.update(prefs) { UploadQueue.addOrMoveToBack(it, item) }
+        }
+        prefs.edit()
             .putString(PREF_PENDING_AUDIO_PATH, file.absolutePath)
             .putInt(PREF_PENDING_AUDIO_DURATION, durationSeconds)
             .putLong(PREF_PENDING_AUDIO_AT, System.currentTimeMillis())
@@ -742,18 +834,37 @@ class RecordingService : Service() {
     }
 
     /**
-     * Sends everything in the queue, oldest first, one upload at a time. Each note is
+     * Sends everything in the queue, front first, one upload at a time. Each note is
      * saved to history as it lands. Only the last one is handed to the screen.
      */
     private fun retryUpload() {
+        // Already sending. A second run over the same files would upload the one in
+        // flight twice. The service is in the foreground already, so returning is safe.
+        if (uploadInFlight) return
+
+        createNotificationChannel()
+        // Before anything that might stop the service: one started with
+        // startForegroundService has to enter the foreground before it may stop.
+        // dataSync, not microphone, because nothing is being recorded on this path. If a
+        // recording is running, the service is in the foreground for that already.
+        if (!isRecording) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    RECORDING_NOTIFICATION_ID,
+                    buildUploadingNotification(),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(RECORDING_NOTIFICATION_ID, buildUploadingNotification())
+            }
+        }
+
         val prefs = prefs()
-        val queue = UploadQueue.load(prefs)
-        val present = queue.filter { File(it.path).exists() }
-        if (present.size != queue.size) UploadQueue.save(prefs, present)
+        val present = UploadQueue.update(prefs) { queue -> queue.filter { File(it.path).exists() } }
         if (present.isEmpty()) {
             prefs.edit().remove(PREF_FAILED_RETRY_AT).apply()
-            broadcastState(STATE_ERROR, "Saved audio is no longer available")
-            stopSelf()
+            if (!isRecording) broadcastState(STATE_ERROR, "Saved audio is no longer available")
+            stopIfIdle()
             return
         }
 
@@ -763,26 +874,15 @@ class RecordingService : Service() {
         val sendable = present.filter { File(it.path).length() <= MAX_UPLOAD_BYTES }
         val run = if (sendable.isEmpty()) present.take(1) else sendable
         val first = run.first()
-        retryRun.clear()
-        retryRun.addAll(run.drop(1))
-        runSuccesses = 0
-        val file = File(first.path)
-        val duration = first.durationSeconds
-
-        createNotificationChannel()
-        // dataSync, not microphone: nothing is being recorded on this path.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                RECORDING_NOTIFICATION_ID,
-                buildUploadingNotification(),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(RECORDING_NOTIFICATION_ID, buildUploadingNotification())
+        synchronized(chainLock) {
+            uploadInFlight = true
+            retryRun.clear()
+            retryRun.addAll(run.drop(1))
+            runSuccesses = 0
         }
-        liveState = LIVE_UPLOADING
-        broadcastState(STATE_LOADING)
-        sendAudioToGroq(file, duration)
+        settleLiveState()
+        if (!isRecording) broadcastState(STATE_LOADING)
+        sendAudioToGroq(File(first.path), first.durationSeconds)
     }
 
     private fun sendAudioToGroq(file: File, durationSeconds: Int, attempt: Int = 0) {
@@ -819,7 +919,7 @@ class RecordingService : Service() {
                 // often than it is genuinely unavailable. Do not stopSelf here — the service
                 // has to stay alive to make the second attempt.
                 if (attempt == 0) {
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    mainHandler.postDelayed({
                         sendAudioToGroq(file, durationSeconds, attempt = 1)
                     }, RETRY_DELAY_MILLIS)
                     return
@@ -828,84 +928,21 @@ class RecordingService : Service() {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                val responseBody = response.body?.string()
-                if (response.isSuccessful && responseBody != null) {
-                    try {
-                        val parsed = TranscriptionResponse.parse(responseBody)
-                        if (parsed == null) {
-                            failUpload(file, durationSeconds, "Error parsing response")
-                            return
-                        }
-                        val text = parsed.text
+                // Once this method has been entered OkHttp never calls onFailure, so an
+                // exception escaping from it would leave the service running with nothing
+                // to end it. Every step below either finishes or fails the upload.
+                val responseBody = try {
+                    response.body?.string()
+                } catch (e: Exception) {
+                    failUpload(
+                        file,
+                        durationSeconds,
+                        "Error: the connection dropped while reading Groq's answer."
+                    )
+                    return
+                }
 
-                        clearUploadFailure(file)
-                        clearRecordingPending(file)
-                        // Keep this recording explicitly: it is the one the note points at.
-                        cleanupAudioCache(keepPath = file.absolutePath)
-
-                        // Save history here, not in the UI: the activity may already be stopped
-                        // (screen off, another app) and would never receive the broadcast, which
-                        // used to lose the transcription outright. MainActivity updates this same
-                        // entry with polished/edited text later.
-                        val entry = TranscriptionHistory.add(
-                            context = this@RecordingService,
-                            rawText = text,
-                            polishedText = null,
-                            durationSeconds = durationSeconds,
-                            routeLabel = routeLabel,
-                            routeSampleRate = routeSampleRate,
-                            avgLogprob = parsed.avgLogprob,
-                            maxNoSpeechProb = parsed.maxNoSpeechProb,
-                            maxCompressionRatio = parsed.maxCompressionRatio,
-                            audioPath = file.absolutePath
-                        )
-                        if (entry != null) {
-                            prefs().edit().putString(PREF_PENDING_RESULT_ID, entry.id).apply()
-                            storeRawResponse(entry.id, responseBody)
-                            android.util.Log.i(
-                                TAG,
-                                "decode stats: avgLogprob=${parsed.avgLogprob} " +
-                                    "maxNoSpeech=${parsed.maxNoSpeechProb} " +
-                                    "maxCompression=${parsed.maxCompressionRatio} " +
-                                    "warning=${entry.qualityWarning()}"
-                            )
-                        }
-
-                        val newTotalUsage = updateUsage(durationSeconds)
-                        runSuccesses++
-
-                        // More waiting from the same retry: this note is in history, so
-                        // move straight on. The screen hears about the last one only.
-                        var next = retryRun.poll()
-                        while (next != null && !File(next.path).exists()) next = retryRun.poll()
-                        if (next != null) {
-                            sendAudioToGroq(File(next.path), next.durationSeconds)
-                            return
-                        }
-
-                        if (!deferClipboard) {
-                            copyToClipboard(text)
-                        }
-
-                        broadcastState(
-                            STATE_SUCCESS,
-                            text,
-                            newTotalUsage,
-                            durationSeconds,
-                            entry?.id,
-                            batchCount = runSuccesses
-                        )
-
-                        // Clipboard writes are blocked for background apps on Android 10+, so a
-                        // notification is the only way to hand the result back when the UI is gone.
-                        if (entry != null && !prefs().getBoolean(PREF_UI_VISIBLE, false)) {
-                            showResultReadyNotification(text)
-                        }
-                    } catch (e: Exception) {
-                        failUpload(file, durationSeconds, "Error parsing response")
-                        return
-                    }
-                } else {
+                if (!response.isSuccessful || responseBody == null) {
                     // Keep the audio: a 429 or a transient 5xx is worth retrying by hand,
                     // but not before the server says a retry could succeed.
                     val wait = retryAfterSeconds(
@@ -916,7 +953,119 @@ class RecordingService : Service() {
                     failUpload(file, durationSeconds, describeApiError(response.code, responseBody), wait)
                     return
                 }
+
+                // Save history here, not in the UI: the activity may already be stopped
+                // (screen off, another app) and would never receive the broadcast, which
+                // used to lose the transcription outright. MainActivity updates this same
+                // entry with polished/edited text later.
+                val parsed: TranscriptionResponse.Parsed
+                val entry: TranscriptionHistory.Entry?
+                try {
+                    parsed = TranscriptionResponse.parse(responseBody) ?: run {
+                        failUpload(file, durationSeconds, "Error parsing response")
+                        return
+                    }
+                    val route = routes[file.absolutePath]
+                    entry = TranscriptionHistory.add(
+                        context = this@RecordingService,
+                        rawText = parsed.text,
+                        polishedText = null,
+                        durationSeconds = durationSeconds,
+                        routeLabel = route?.first,
+                        routeSampleRate = route?.second,
+                        avgLogprob = parsed.avgLogprob,
+                        maxNoSpeechProb = parsed.maxNoSpeechProb,
+                        maxCompressionRatio = parsed.maxCompressionRatio,
+                        audioPath = file.absolutePath
+                    )
+                } catch (e: Exception) {
+                    // Nothing was saved, so the recording goes back in the queue.
+                    failUpload(file, durationSeconds, "Error parsing response")
+                    return
+                }
+                val text = parsed.text
+
+                // The note is saved. From here nothing may send this recording back to
+                // the queue: a retry would upload it again and save it a second time.
+                var newTotalUsage = -1
+                try {
+                    routes.remove(file.absolutePath)
+                    clearUploadFailure(file)
+                    clearRecordingPending(file)
+                    // Keep this recording explicitly: it is the one the note points at.
+                    cleanupAudioCache(keepPath = file.absolutePath)
+                    if (entry != null) {
+                        prefs().edit().putString(PREF_PENDING_RESULT_ID, entry.id).apply()
+                        storeRawResponse(entry.id, responseBody)
+                        android.util.Log.i(
+                            TAG,
+                            "decode stats: avgLogprob=${parsed.avgLogprob} " +
+                                "maxNoSpeech=${parsed.maxNoSpeechProb} " +
+                                "maxCompression=${parsed.maxCompressionRatio} " +
+                                "warning=${entry.qualityWarning()}"
+                        )
+                    }
+                    newTotalUsage = updateUsage(durationSeconds)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                runSuccesses++
+
+                // More waiting in the same run: move straight on. The screen hears about
+                // the last note only. Taking the next one and declaring the run over
+                // happen under one lock, so a recording that stops at this moment either
+                // joins this run or starts its own.
+                val next = synchronized(chainLock) {
+                    var candidate = retryRun.poll()
+                    while (candidate != null && !File(candidate.path).exists()) {
+                        candidate = retryRun.poll()
+                    }
+                    if (candidate == null) uploadInFlight = false
+                    candidate
+                }
+                if (next != null) {
+                    val nextFile = File(next.path)
+                    try {
+                        sendAudioToGroq(nextFile, next.durationSeconds)
+                    } catch (e: Exception) {
+                        failUpload(nextFile, next.durationSeconds, "Error: ${e.message}")
+                    }
+                    return
+                }
+
+                val batch = runSuccesses
                 endUploads()
+                liveLastError = null
+
+                if (isRecording) {
+                    // A new recording is under way and its screen is not interrupted.
+                    // The note is in History, and the notification says so.
+                    if (entry != null) showResultReadyNotification(text)
+                    return
+                }
+
+                try {
+                    if (!deferClipboard) {
+                        copyToClipboard(text)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                broadcastState(
+                    STATE_SUCCESS,
+                    text,
+                    newTotalUsage,
+                    durationSeconds,
+                    entry?.id,
+                    batchCount = batch
+                )
+
+                // Clipboard writes are blocked for background apps on Android 10+, so a
+                // notification is the only way to hand the result back when the UI is gone.
+                if (entry != null && !prefs().getBoolean(PREF_UI_VISIBLE, false)) {
+                    showResultReadyNotification(text)
+                }
             }
         })
     }
@@ -929,13 +1078,13 @@ class RecordingService : Service() {
         entryId: String? = null,
         batchCount: Int = 0
     ) {
-        // Every error and every success ends the service's work, so the live state is
-        // settled here, before the broadcast, instead of at each of the dozen exits.
+        // An error or a success changes what the service is doing, so the live state is
+        // worked out again here, before the broadcast, and not at each exit.
         if (state == STATE_ERROR) {
             liveLastError = text
-            liveState = LIVE_IDLE
+            settleLiveState()
         } else if (state == STATE_SUCCESS) {
-            liveState = LIVE_IDLE
+            settleLiveState()
         }
         val intent = Intent(BROADCAST_STATE).apply {
             setPackage(packageName)

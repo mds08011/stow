@@ -5,7 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Recordings that still need a successful upload, oldest first.
+ * Recordings that still need a successful upload. New ones join at the back, and so does
+ * one whose retry fails.
  *
  * Until v2.8.4 there was one slot (`failed_audio_path`), so a second failure took the
  * pointer away from the first: its audio stayed on disk with nothing in the app leading
@@ -79,8 +80,23 @@ object UploadQueue {
         prefs.getInt(RecordingService.PREF_FAILED_AUDIO_DURATION, 0)
     )
 
+    /**
+     * Reads the list, applies [transform] and writes the result, as one step. The queue
+     * is changed from the main thread and from network threads, and a read on one that
+     * straddles a write on the other would put back an item the other had just removed.
+     */
+    @Synchronized
+    fun update(prefs: SharedPreferences, transform: (List<Item>) -> List<Item>): List<Item> {
+        val before = load(prefs)
+        val after = transform(before)
+        if (after != before || prefs.contains(RecordingService.PREF_FAILED_AUDIO_PATH)) {
+            save(prefs, after)
+        }
+        return after
+    }
+
     /** Writes the list and retires the legacy keys, which [load] has already folded in. */
-    fun save(prefs: SharedPreferences, items: List<Item>) {
+    private fun save(prefs: SharedPreferences, items: List<Item>) {
         prefs.edit()
             .putString(PREF_QUEUE, serialize(items))
             .remove(RecordingService.PREF_FAILED_AUDIO_PATH)

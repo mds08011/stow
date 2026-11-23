@@ -73,6 +73,8 @@ class MainActivity : AppCompatActivity() {
     private var countdownRunnable: Runnable? = null
     /** How many recordings are waiting behind the Retry button. */
     private var waitingUploads = 0
+    /** onStart runs again on every return to the app, and must not stack this dialog. */
+    private var unfinishedDialogShowing = false
     private var lastRawTranscription: String = ""
     private var lastDurationSeconds: Int? = null
     private var lastHistoryEntryId: String? = null
@@ -301,6 +303,13 @@ class MainActivity : AppCompatActivity() {
             dispatchRetryUpload()
         }
 
+        // The only way to drop a recording that can never be sent, such as one over
+        // Groq's size limit. Clear saved audio in Settings deliberately leaves the queue alone.
+        btnRetryUpload.setOnLongClickListener {
+            confirmDiscardWaitingUploads()
+            true
+        }
+
         restoreInstanceState(savedInstanceState)
 
         btnRecord.setOnClickListener {
@@ -372,7 +381,7 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(receiver, filter)
         }
         sharedPreferences.edit().putBoolean(RecordingService.PREF_UI_VISIBLE, true).apply()
-        // First: the two calls below both depend on isRecording being true to life.
+        // First: everything below depends on isRecording being true to life.
         syncWithService()
         consumePendingResult()
         refreshRetryButton()
@@ -445,11 +454,14 @@ class MainActivity : AppCompatActivity() {
                 if (status == STATUS_RECORDING || status == STATUS_PAUSED || status == STATUS_UPLOADING) {
                     setStatus("")
                 }
-                // An upload that failed while nobody was looking. Its audio is kept, and
-                // refreshRetryButton offers it; this is the reason.
-                RecordingService.liveLastError?.let { error ->
-                    RecordingService.liveLastError = null
-                    if (!showingResult) setStatus(error)
+                // An upload that failed while nobody was looking. Its audio is kept and
+                // refreshRetryButton offers it. This is the reason. It is held back while
+                // a result is on screen, and shown once that result is left.
+                if (!showingResult) {
+                    RecordingService.liveLastError?.let { error ->
+                        RecordingService.liveLastError = null
+                        setStatus(error)
+                    }
                 }
             }
         }
@@ -469,14 +481,19 @@ class MainActivity : AppCompatActivity() {
     /**
      * Offers back a recording whose upload never reached a conclusion.
      *
-     * A failed upload leaves the failed_* keys and surfaces as Retry. This covers the
+     * A failed upload joins the upload queue and surfaces as Retry. This covers the
      * other case: the process being killed mid-upload, where no callback ever ran and the
-     * audio would otherwise sit in the cache with nothing pointing at it. The service
+     * audio would otherwise sit on the phone with nothing pointing at it. The service
      * checkpoints every recording the moment it stops, so that window is now recoverable.
      * Ported from Stow Web, where iPadOS evicting a background tab made it routine.
      */
     private fun offerUnfinishedRecording() {
         if (isRecording || isPolishing) return
+        // The checkpoint is set from stop until the upload ends, so while the service is
+        // busy it names the upload in flight, not an abandoned one. Offering it then
+        // would upload the same recording twice, or delete it under the upload.
+        if (RecordingService.liveState != RecordingService.LIVE_IDLE || RecordingService.uploadInFlight) return
+        if (unfinishedDialogShowing) return
         // A completed-but-unclaimed result takes precedence. Uploads waiting behind Retry
         // do not: since v2.8.4 they are a queue, and this recording can join it.
         if (sharedPreferences.getString(RecordingService.PREF_PENDING_RESULT_ID, null) != null) return
@@ -501,7 +518,9 @@ class MainActivity : AppCompatActivity() {
             "${durationSeconds}s"
         }
 
+        unfinishedDialogShowing = true
         AlertDialog.Builder(this)
+            .setOnDismissListener { unfinishedDialogShowing = false }
             .setTitle("Unfinished recording")
             .setMessage(
                 "A recording from $when_ ($length) was never transcribed — Stow was closed " +
@@ -533,15 +552,40 @@ class MainActivity : AppCompatActivity() {
      * upload queue, so a crash-recovered recording joins it first.
      */
     private fun startRetryUpload(path: String, durationSeconds: Int) {
-        UploadQueue.save(
-            sharedPreferences,
-            UploadQueue.addOrMoveToBack(
-                UploadQueue.load(sharedPreferences),
-                UploadQueue.Item(path, durationSeconds, System.currentTimeMillis())
-            )
-        )
-        sharedPreferences.edit().remove(RecordingService.PREF_FAILED_RETRY_AT).apply()
+        val item = UploadQueue.Item(path, durationSeconds, System.currentTimeMillis())
+        UploadQueue.update(sharedPreferences) { UploadQueue.addOrMoveToBack(it, item) }
+
+        // The retry sends the whole queue. If Groq has asked for a wait, it still applies:
+        // the recording is queued and the Retry button counts the wait down.
+        val retryAt = sharedPreferences.getLong(RecordingService.PREF_FAILED_RETRY_AT, 0L)
+        if (retryAt > System.currentTimeMillis()) {
+            refreshRetryButton()
+            Toast.makeText(this, "Queued. Retry when the timer runs out.", Toast.LENGTH_LONG).show()
+            return
+        }
         dispatchRetryUpload()
+    }
+
+    private fun confirmDiscardWaitingUploads() {
+        val waiting = UploadQueue.load(sharedPreferences)
+        if (waiting.isEmpty() || RecordingService.uploadInFlight) return
+        val what = if (waiting.size == 1) "the recording" else "all ${waiting.size} recordings"
+        AlertDialog.Builder(this)
+            .setTitle("Discard waiting uploads?")
+            .setMessage(
+                "This deletes $what waiting to be uploaded. They have not been transcribed, " +
+                    "and this cannot be undone."
+            )
+            .setPositiveButton("Discard") { _, _ ->
+                val paths = waiting.map { it.path }.toSet()
+                UploadQueue.update(sharedPreferences) { queue -> queue.filter { it.path !in paths } }
+                paths.forEach { java.io.File(it).delete() }
+                setStatus("")
+                refreshRetryButton()
+                Toast.makeText(this, "Waiting uploads discarded", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Keep", null)
+            .show()
     }
 
     private fun dispatchRetryUpload() {
@@ -576,6 +620,10 @@ class MainActivity : AppCompatActivity() {
     private fun consumePendingResult() {
         val pendingId = sharedPreferences.getString(RecordingService.PREF_PENDING_RESULT_ID, null)
             ?: return
+        // Not while more uploads are landing. Every note in a run of retries sets this id
+        // in turn, and showing one mid-run would start a polish, or accept edits, that the
+        // run's last note then lands on top of. The id is left for the end of the run.
+        if (RecordingService.uploadInFlight) return
         clearPendingResult()
         if (isRecording) return
 
@@ -734,16 +782,16 @@ class MainActivity : AppCompatActivity() {
 
     /** Offers the retry only while a failed upload's audio is still on disk. */
     private fun refreshRetryButton() {
-        val queue = UploadQueue.load(sharedPreferences)
-        val present = queue.filter { java.io.File(it.path).exists() }
-        if (present.size != queue.size) {
-            UploadQueue.save(sharedPreferences, present)
-            if (present.isEmpty()) {
-                sharedPreferences.edit().remove(RecordingService.PREF_FAILED_RETRY_AT).apply()
-            }
+        val present = UploadQueue.update(sharedPreferences) { queue ->
+            queue.filter { java.io.File(it.path).exists() }
+        }
+        if (present.isEmpty() && sharedPreferences.contains(RecordingService.PREF_FAILED_RETRY_AT)) {
+            sharedPreferences.edit().remove(RecordingService.PREF_FAILED_RETRY_AT).apply()
         }
         waitingUploads = present.size
-        val available = present.isNotEmpty()
+        // Hidden while uploads are in flight: the queue still lists every recording that
+        // has not landed yet, and a second run over them would send one twice.
+        val available = present.isNotEmpty() && !RecordingService.uploadInFlight
         btnRetryUpload.visibility = if (available && !isRecording) View.VISIBLE else View.GONE
         if (btnRetryUpload.visibility == View.VISIBLE) {
             tickRetryCountdown()
