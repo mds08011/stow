@@ -28,7 +28,8 @@ class RecordingService : Service() {
 
     private var mediaRecorder: MediaRecorder? = null
     private var audioFile: File? = null
-    private val client = OkHttpClient()
+    // Shared with the re-transcribe path for its timeouts; see AudioTranscriber.client.
+    private val client get() = AudioTranscriber.client
     private var isRecording = false
     private var startTimeMillis = 0L
 

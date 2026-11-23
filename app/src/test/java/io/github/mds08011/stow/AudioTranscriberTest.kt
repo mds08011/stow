@@ -62,4 +62,17 @@ class AudioTranscriberTest {
         assertEquals("whisper-large-v3-turbo", AudioTranscriber.MODEL_TURBO)
         assertEquals("whisper-large-v3", AudioTranscriber.MODEL_LARGE)
     }
+
+    /**
+     * OkHttp's defaults are 10 seconds each. The recording path ran on them until v2.8.4,
+     * which timed out any note long enough that Groq took more than 10 seconds to answer.
+     */
+    @Test
+    fun `transcription client waits long enough for a long note`() {
+        val client = AudioTranscriber.client
+
+        assertEquals(300_000, client.readTimeoutMillis)
+        assertEquals(120_000, client.writeTimeoutMillis)
+        assertEquals(30_000, client.connectTimeoutMillis)
+    }
 }

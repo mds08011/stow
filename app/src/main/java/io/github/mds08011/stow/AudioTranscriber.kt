@@ -50,14 +50,28 @@ object AudioTranscriber {
             .build()
     }
 
-    private val client: OkHttpClient by lazy {
+    /**
+     * The one client every transcription request goes through, including the recording
+     * path in [RecordingService]. OkHttp's defaults are 10 seconds each for connect, read
+     * and write, and a transcription outlasts all three: Groq answers nothing until it has
+     * decoded the whole file, which takes longer than 10 seconds once a note runs past
+     * twenty minutes or so, and a weak uplink can stall a write for that long on a note of
+     * any length. The recording path used a bare `OkHttpClient()` until v2.8.4, so a long
+     * note timed out, was re-uploaded whole by the automatic retry, and timed out again.
+     */
+    internal val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            // Non-turbo is materially slower; a long note needs room.
-            .readTimeout(300, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            // The wait for Groq's answer after the upload. Non-turbo is materially slower.
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            // Per stalled write, not for the whole upload.
+            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
+
+    internal const val CONNECT_TIMEOUT_SECONDS = 30L
+    internal const val READ_TIMEOUT_SECONDS = 300L
+    internal const val WRITE_TIMEOUT_SECONDS = 120L
 
     /**
      * One-shot transcription used by the re-transcribe action. The recording path does its
