@@ -211,10 +211,50 @@ class RecordingService : Service() {
 
         /**
          * Recent recordings are kept so a bad transcription can be re-run or shared.
-         * externalCacheDir may be reclaimed by the OS at any time — a missing file is
-         * normal, never an error.
+         * A missing file is normal, never an error: they are pruned after a few notes.
          */
         const val MAX_RETAINED_AUDIO = 5
+
+        /** Folder under filesDir that recordings are written to. See [audioDir]. */
+        const val AUDIO_DIR_NAME = "audio"
+
+        /**
+         * Where recordings are written.
+         *
+         * App-private internal storage, which Android never clears on its own. Until
+         * v2.8.4 this was externalCacheDir, which the system may empty whenever the phone
+         * runs short of space, and a recording that has not been transcribed yet is the
+         * one file Stow cannot afford to lose that way.
+         *
+         * filesDir is covered by Android's automatic backup where the cache was not, so
+         * res/xml/backup_rules.xml and data_extraction_rules.xml exclude this folder.
+         */
+        fun audioDir(context: Context): File =
+            File(context.filesDir, AUDIO_DIR_NAME).apply { mkdirs() }
+
+        /**
+         * Every recording on the device: the current folder, plus the cache folder that
+         * versions before 2.8.4 recorded into, whose files history entries still point at.
+         */
+        fun audioFiles(context: Context): List<File> = try {
+            listOfNotNull(audioDir(context), context.externalCacheDir).flatMap { dir ->
+                dir.listFiles { f ->
+                    f.name.startsWith(AUDIO_FILE_PREFIX) && f.name.endsWith(AUDIO_FILE_SUFFIX)
+                }?.toList().orEmpty()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+
+        /**
+         * Paths of recordings that have not been transcribed yet: the upload that failed
+         * and the one that was in flight. Nothing that tidies up may delete these.
+         */
+        fun unsentAudioPaths(prefs: SharedPreferences): Set<String> = setOfNotNull(
+            prefs.getString(PREF_FAILED_AUDIO_PATH, null),
+            prefs.getString(PREF_PENDING_AUDIO_PATH, null)
+        )
         private const val AUDIO_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
 
         private const val RECORDING_NOTIFICATION_ID = 1
@@ -312,7 +352,7 @@ class RecordingService : Service() {
 
         // Unique name so a failed upload's audio survives the next recording (see retryUpload).
         audioFile = File(
-            externalCacheDir,
+            audioDir(this),
             "$AUDIO_FILE_PREFIX${System.currentTimeMillis()}$AUDIO_FILE_SUFFIX"
         )
 
@@ -636,7 +676,7 @@ class RecordingService : Service() {
      */
     private fun cleanupAudioCache(keepPath: String?) {
         try {
-            val files = audioCacheFiles()
+            val files = audioFiles(this)
             if (files.isEmpty()) return
 
             val cutoff = System.currentTimeMillis() - AUDIO_RETENTION_MILLIS
@@ -648,22 +688,12 @@ class RecordingService : Service() {
                 .toMutableSet()
 
             keepPath?.let { keep.add(it) }
-            prefs().getString(PREF_FAILED_AUDIO_PATH, null)?.let { keep.add(it) }
+            keep.addAll(unsentAudioPaths(prefs()))
 
             files.forEach { if (it.absolutePath !in keep) it.delete() }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-    }
-
-    private fun audioCacheFiles(): List<File> = try {
-        externalCacheDir
-            ?.listFiles { f -> f.name.startsWith(AUDIO_FILE_PREFIX) && f.name.endsWith(AUDIO_FILE_SUFFIX) }
-            ?.toList()
-            .orEmpty()
-    } catch (e: Exception) {
-        e.printStackTrace()
-        emptyList()
     }
 
     private fun retryUpload() {

@@ -3,4 +3,7 @@
     <external-files-path name="downloads" path="Download/" />
     <!-- Retained recordings, so a bad one can be shared off the device for analysis. -->
     <external-cache-path name="recordings" path="." />
+    <!-- Where recordings are written from v2.8.4 on. The line above still serves the
+         ones older versions left in the cache folder. -->
+    <files-path name="audio" path="audio/" />
 </paths>

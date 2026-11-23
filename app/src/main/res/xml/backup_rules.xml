@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and earlier. Recordings are written under files/audio, which automatic
+     backup would otherwise send to the owner's Google account. They are kept out: they
+     are large, short-lived, and may hold other people's voices. -->
+<full-backup-content>
+    <exclude domain="file" path="audio/" />
+</full-backup-content>

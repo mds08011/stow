@@ -1203,18 +1203,14 @@ class MainActivity : AppCompatActivity() {
         ).show()
     }
 
-    /** Recordings retained for troubleshooting. The OS may reclaim these at any time. */
-    private fun retainedAudioFiles(): List<java.io.File> = try {
-        externalCacheDir
-            ?.listFiles { f ->
-                f.name.startsWith(RecordingService.AUDIO_FILE_PREFIX) &&
-                    f.name.endsWith(RecordingService.AUDIO_FILE_SUFFIX)
-            }
-            ?.toList()
-            .orEmpty()
-    } catch (e: Exception) {
-        e.printStackTrace()
-        emptyList()
+    /**
+     * Recordings retained for troubleshooting, which Settings can clear. A recording that
+     * has not been transcribed yet is not one of them: clearing saved audio must never
+     * take the note waiting behind Retry with it.
+     */
+    private fun retainedAudioFiles(): List<java.io.File> {
+        val unsent = RecordingService.unsentAudioPaths(sharedPreferences)
+        return RecordingService.audioFiles(this).filter { it.absolutePath !in unsent }
     }
 
     private fun clearAudioButtonLabel(): String {
