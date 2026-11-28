@@ -1102,6 +1102,7 @@ class MainActivity : AppCompatActivity() {
         val preset = PolishPresets.getSelected(this)
         val systemPrompt = PolishPresets.buildSystemPrompt(preset, getJargon().orEmpty())
 
+        val targetEntryId = lastHistoryEntryId
         isPolishing = true
         btnPolish.isEnabled = false
         setStatus("Polishing with ${preset.name}...")
@@ -1115,7 +1116,19 @@ class MainActivity : AppCompatActivity() {
             // restructures into headings and checkboxes and legitimately grows.
             enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
             onSuccess = { polished ->
+                // Save auto-polish results before touching the UI, so a screen rotation or
+                // background exit mid-polish never discards the polished text.
+                if (autoTriggered && targetEntryId != null) {
+                    val existing = TranscriptionHistory.getById(applicationContext, targetEntryId)
+                    if (existing != null) {
+                        TranscriptionHistory.update(
+                            applicationContext,
+                            existing.copy(polishedText = polished, rawText = rawText)
+                        )
+                    }
+                }
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     isPolishing = false
                     btnPolish.isEnabled = true
                     if (autoTriggered) {
@@ -1135,6 +1148,7 @@ class MainActivity : AppCompatActivity() {
             },
             onError = { error ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     isPolishing = false
                     btnPolish.isEnabled = rawText.isNotBlank()
                     if (autoTriggered) {
@@ -1646,10 +1660,14 @@ class MainActivity : AppCompatActivity() {
                     jargon = getJargon().orEmpty(),
                     model = model,
                     onSuccess = { parsed ->
-                        runOnUiThread { showRetranscribeComparison(entry, parsed, models[which].second) }
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            showRetranscribeComparison(entry, parsed, models[which].second)
+                        }
                     },
                     onError = { error ->
                         runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
                             Toast.makeText(this, error, Toast.LENGTH_LONG).show()
                             showHistoryDetail(entry)
                         }
@@ -1744,16 +1762,18 @@ class MainActivity : AppCompatActivity() {
             model = getPolishModel(),
             enforceLengthGuard = preset.id == PolishPresets.ID_CLEAN_PROSE,
             onSuccess = { polished ->
+                val updated = entry.copy(polishedText = polished)
+                TranscriptionHistory.update(applicationContext, updated)
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     isPolishing = false
-                    val updated = entry.copy(polishedText = polished)
-                    TranscriptionHistory.update(this@MainActivity, updated)
                     Toast.makeText(this@MainActivity, "Note re-polished", Toast.LENGTH_SHORT).show()
                     showHistoryDetail(updated)
                 }
             },
             onError = { error ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     isPolishing = false
                     // The entry is untouched — an existing polish is not overwritten by a
                     // failed re-polish, and the raw text was never at risk.
@@ -1850,7 +1870,8 @@ class MainActivity : AppCompatActivity() {
         val hint = TextView(this).apply {
             text = "The transcript is sent separately as the user message. Jargon Dictionary " +
                 "terms are appended automatically, or inserted at " +
-                "${PolishPresets.JARGON_PLACEHOLDER} if you include it."
+                "${PolishPresets.JARGON_PLACEHOLDER} if you include it. Use " +
+                "${PolishPresets.TODAY_PLACEHOLDER} to insert today's date and weekday."
             textSize = 12f
             setPadding(0, gap, 0, 0)
         }
@@ -1946,9 +1967,13 @@ class MainActivity : AppCompatActivity() {
         layout.orientation = LinearLayout.VERTICAL
         layout.setPadding(50, 40, 50, 10)
 
-        val apiKeyInput = EditText(this)
-        apiKeyInput.setText(getApiKey())
-        apiKeyInput.hint = "Groq API key"
+        val apiKeyInput = EditText(this).apply {
+            setText(getApiKey())
+            hint = "Groq API key"
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
         layout.addView(apiKeyInput)
 
         val autoPolishCheckbox = CheckBox(this).apply {
@@ -2204,6 +2229,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun downloadAndInstallUpdate(url: String, fileName: String) {
+        downloadReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (_: Exception) {
+            }
+            downloadReceiver = null
+        }
+
         val request = android.app.DownloadManager.Request(android.net.Uri.parse(url))
             .setTitle("Stow Update")
             .setDescription("Downloading update $fileName")
@@ -2227,11 +2260,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // DownloadManager broadcasts from the downloads provider process, not this app,
+        // so Android 14 drops ACTION_DOWNLOAD_COMPLETE under RECEIVER_NOT_EXPORTED.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(
                 downloadReceiver,
                 IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                Context.RECEIVER_NOT_EXPORTED
+                Context.RECEIVER_EXPORTED
             )
         } else {
             registerReceiver(
@@ -2246,6 +2281,35 @@ class MainActivity : AppCompatActivity() {
         try {
             val file = java.io.File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), fileName)
             if (!file.exists()) return
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                if (isFinishing || isDestroyed) return
+                AlertDialog.Builder(this)
+                    .setTitle("Allow app installs")
+                    .setMessage(
+                        "Android requires permission for Stow to install downloaded updates. " +
+                            "Enable \"Allow from this source\" on the next screen, then check for updates again."
+                    )
+                    .setPositiveButton("Open Settings") { _, _ ->
+                        try {
+                            startActivity(
+                                Intent(
+                                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    android.net.Uri.parse("package:$packageName")
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                this,
+                                "Open Settings → Apps → Stow → Install unknown apps",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+                return
+            }
 
             val uri = androidx.core.content.FileProvider.getUriForFile(
                 this,

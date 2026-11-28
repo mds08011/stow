@@ -4,6 +4,8 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
+import java.time.format.TextStyle
+import java.util.Locale
 import java.util.UUID
 
 /**
@@ -148,8 +150,10 @@ object PolishPresets {
         }
         // The date is the device's, not the server's: a capture dictated at 11pm belongs to
         // the day the speaker is living in, and Groq's idea of "today" is neither here nor
-        // there. ISO so there is no month/day ambiguity for the model to get wrong.
-        val withDate = withJargon.replace(TODAY_PLACEHOLDER, today.toString())
+        // there. ISO plus English weekday so small models do not miscompute "by Friday"
+        // from a bare calendar date.
+        val weekday = today.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH)
+        val withDate = withJargon.replace(TODAY_PLACEHOLDER, "$today ($weekday)")
         // Appended to every preset, including user-written ones: the transport contract is
         // the app's to guarantee, not something each prompt should have to remember.
         return withDate.trimEnd() + "\n\n" + TRANSPORT_NOTE

@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 class TranscriptionPolisher(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 ) {
@@ -274,7 +274,8 @@ class TranscriptionPolisher(
          */
         fun maxTokensFor(rawTextLength: Int, model: String): Int {
             val output = maxOf(MIN_MAX_TOKENS, (rawTextLength / 3) * 2)
-            return if (isReasoningModel(model)) output + REASONING_HEADROOM_TOKENS else output
+            val total = if (isReasoningModel(model)) output + REASONING_HEADROOM_TOKENS else output
+            return minOf(total, MAX_MAX_TOKENS)
         }
 
         /**
@@ -334,6 +335,9 @@ class TranscriptionPolisher(
          * floor alone was not enough.
          */
         private const val REASONING_HEADROOM_TOKENS = 2048
+
+        /** Upper cap so very long transcripts do not ask for an unsupported completion size. */
+        private const val MAX_MAX_TOKENS = 16384
 
         private const val TAG = "TranscriptionPolisher"
 

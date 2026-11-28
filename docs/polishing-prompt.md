@@ -25,9 +25,9 @@ Parameters:
 
 - Model: **user-editable**, defaulting to `openai/gpt-oss-20b` (free-tier friendly). See [The polish model is a setting](#the-polish-model-is-a-setting) below.
 - `temperature`: `0.2`
-- `max_tokens`: `TranscriptionPolisher.maxTokensFor(length, model)` — see [The token budget](#the-token-budget) below. An output estimate of `max(1024, (rawText.length / 3) * 2)`, plus a flat **2048-token allowance** on a reasoning model for the thinking it does before it writes.
+- `max_tokens`: `TranscriptionPolisher.maxTokensFor(length, model)` — see [The token budget](#the-token-budget) below. An output estimate of `max(1024, (rawText.length / 3) * 2)`, plus a flat **2048-token allowance** on a reasoning model for the thinking it does before it writes, capped at `16384`.
 - `reasoning_effort`: `"low"` and `include_reasoning`: `false` — **only when the model id starts with `openai/gpt-oss`**. Groq returns reasoning in a separate `reasoning` field, so it never reaches the note either way, but it is still generated and still spends the token budget. Other Groq chat models reject these parameters outright, which is why they are conditional rather than always sent.
-- Timeouts (OkHttp): 30 s connect, 60 s read, 30 s write
+- Timeouts (OkHttp): 30 s connect, 120 s read, 30 s write
 
 ## The polish model is a setting
 
@@ -88,8 +88,10 @@ This applies to **Clean prose only**. Task capture legitimately grows — adding
 
 ## Today's date injection
 
-`{{TODAY}}` anywhere in a preset is replaced with the device's current date as ISO
-`YYYY-MM-DD`, for every occurrence, before the request is sent.
+`{{TODAY}}` anywhere in a preset is replaced with the device's current date and English
+weekday as `YYYY-MM-DD (Weekday)` (for example `2026-09-21 (Monday)`), for every
+occurrence, before the request is sent. Including the weekday keeps small models from
+miscalculating spoken deadlines like "by Friday" off a bare ISO date.
 
 A model has no clock, so without this a preset can only repeat a spoken timeframe back —
 "by Friday" stays the words "by Friday". With it, a preset can resolve one to a date

@@ -349,5 +349,24 @@ class TranscriptionHistoryTest {
         assertNull(entry(durationSeconds = -1).formattedDuration())
     }
 
+    @Test
+    fun `atomic write creates and replaces the history file without leaving a temp file`() {
+        val dir = kotlin.io.path.createTempDirectory("stow-history-test").toFile()
+        try {
+            val target = java.io.File(dir, "stow_history.json")
+            val tmp = java.io.File(dir, "stow_history.json.tmp")
+
+            TranscriptionHistory.writeAtomically(target, "[{\"id\":\"1\"}]")
+            assertEquals("[{\"id\":\"1\"}]", target.readText())
+            assertFalse(tmp.exists())
+
+            TranscriptionHistory.writeAtomically(target, "[{\"id\":\"2\"}]")
+            assertEquals("[{\"id\":\"2\"}]", target.readText())
+            assertFalse(tmp.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     // endregion
 }

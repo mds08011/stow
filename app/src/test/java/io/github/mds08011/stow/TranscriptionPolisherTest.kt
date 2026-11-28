@@ -138,6 +138,13 @@ class TranscriptionPolisherTest {
         assertTrue(long < 20000)
     }
 
+    @Test
+    fun `very long transcripts are capped at the maximum completion budget`() {
+        val huge = TranscriptionPolisher.maxTokensFor(100_000, model)
+
+        assertEquals(16384, huge)
+    }
+
     // --- Stopping on the token cap ---------------------------------------------------
 
     @Test

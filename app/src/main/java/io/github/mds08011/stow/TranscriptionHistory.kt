@@ -10,6 +10,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Structured local transcription history.
@@ -33,7 +34,7 @@ object TranscriptionHistory {
     private var cache: List<Entry>? = null
 
     private val writeExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "stow-history-writer").apply { isDaemon = true }
+        Thread(runnable, "stow-history-writer")
     }
 
     data class Entry(
@@ -276,10 +277,42 @@ object TranscriptionHistory {
         val snapshot = entries.toList()
         writeExecutor.execute {
             try {
-                file.writeText(serializeEntries(snapshot))
+                writeAtomically(file, serializeEntries(snapshot))
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+
+    /**
+     * Waits for any queued history writes to finish on disk. Call from a background thread
+     * before a service stops itself, so the process is not reclaimed mid-flush.
+     */
+    fun flush(timeoutMillis: Long = 5_000L) {
+        try {
+            writeExecutor.submit {}.get(timeoutMillis, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Writes via a sibling temp file and renames over [file], so a process kill mid-write
+     * never leaves stow_history.json truncated. Exposed for unit tests.
+     */
+    internal fun writeAtomically(file: File, content: String) {
+        file.parentFile?.let { if (!it.exists()) it.mkdirs() }
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        try {
+            tmp.writeText(content)
+            if (!tmp.renameTo(file)) {
+                // Rare fallback if the filesystem refuses an overwrite rename.
+                file.writeText(content)
+                tmp.delete()
+            }
+        } catch (e: Exception) {
+            tmp.delete()
+            throw e
         }
     }
 

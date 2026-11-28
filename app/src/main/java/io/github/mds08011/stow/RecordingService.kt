@@ -38,6 +38,8 @@ class RecordingService : Service() {
     private var landedUnseen = 0
     /** Guards the hand-off between "is an upload running" and "what does it send next". */
     private val chainLock = Any()
+    private val wakeLockGuard = Any()
+    private var uploadWakeLock: android.os.PowerManager.WakeLock? = null
     /** Microphone and sample rate per recording, held from stop until its note is saved. */
     private val routes = java.util.concurrent.ConcurrentHashMap<String, Pair<String?, Int?>>()
     // Shared with the re-transcribe path for its timeouts. See AudioTranscriber.client.
@@ -167,6 +169,8 @@ class RecordingService : Service() {
         const val AUDIO_FILE_PREFIX = "audio_"
         const val AUDIO_FILE_SUFFIX = ".m4a"
         private const val RETRY_DELAY_MILLIS = 2000L
+        /** Longer than AudioTranscriber's 5-minute read timeout; renewed per upload. */
+        private const val UPLOAD_WAKELOCK_TIMEOUT_MILLIS = 6L * 60 * 1000
 
         /** Longest wait worth counting down before telling the user to come back later. */
         private const val MAX_RETRY_WAIT_SECONDS = 900L
@@ -411,7 +415,33 @@ class RecordingService : Service() {
             isPaused = false
             settleLiveState()
         }
+        releaseUploadWakeLock()
         super.onDestroy()
+    }
+
+    private fun acquireUploadWakeLock() {
+        synchronized(wakeLockGuard) {
+            try {
+                val wl = uploadWakeLock
+                    ?: (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+                        .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Stow:Upload")
+                        .apply { setReferenceCounted(false) }
+                        .also { uploadWakeLock = it }
+                wl.acquire(UPLOAD_WAKELOCK_TIMEOUT_MILLIS)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun releaseUploadWakeLock() {
+        synchronized(wakeLockGuard) {
+            try {
+                uploadWakeLock?.let { if (it.isHeld) it.release() }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     private fun startRecording() {
@@ -467,6 +497,13 @@ class RecordingService : Service() {
                 resolveRoutedDevice(retry = true)
             } catch (e: Exception) {
                 e.printStackTrace()
+                try {
+                    release()
+                } catch (_: Exception) {
+                }
+                mediaRecorder = null
+                audioFile?.takeIf { it.exists() && it.length() == 0L }?.delete()
+                audioFile = null
                 broadcastState(STATE_ERROR, "Failed to start recording")
                 // An upload may still be running, and it needs the service. Its
                 // notification was replaced by the recording one a moment ago.
@@ -697,8 +734,16 @@ class RecordingService : Service() {
             // Reached only when the recorder itself failed to stop, before any upload
             // was claimed, so there is no run of this call's to unwind.
             e.printStackTrace()
+            try {
+                mediaRecorder?.release()
+            } catch (_: Exception) {
+            }
+            mediaRecorder = null
+            audioFile?.takeIf { it.exists() && it.length() == 0L }?.delete()
+            audioFile = null
             isRecording = false
             isPaused = false
+            settleLiveState()
             broadcastState(STATE_ERROR, "Failed to stop recording")
             restoreUploadingNotification()
             stopIfIdle()
@@ -770,6 +815,7 @@ class RecordingService : Service() {
             retryRun.clear()
             uploadInFlight = false
         }
+        releaseUploadWakeLock()
         // On the main thread, where recordings start and stop, so that "is a recording
         // under way" cannot change between asking and acting on the answer.
         onMain {
@@ -936,6 +982,8 @@ class RecordingService : Service() {
     }
 
     private fun sendAudioToGroq(file: File, durationSeconds: Int, attempt: Int = 0) {
+        acquireUploadWakeLock()
+
         if (!isNetworkAvailable()) {
             failUpload(file, durationSeconds, "Error: No active internet connection found.")
             return
@@ -1063,6 +1111,9 @@ class RecordingService : Service() {
                         )
                     }
                     newTotalUsage = updateUsage(durationSeconds)
+                    // Ensure stow_history.json is flushed atomically before the service
+                    // stops itself and Android can reclaim the idle process.
+                    TranscriptionHistory.flush()
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -1084,6 +1135,7 @@ class RecordingService : Service() {
                     sendAudioToGroq(File(next.path), next.durationSeconds)
                     return
                 }
+                releaseUploadWakeLock()
 
                 // The run is over, and uploadInFlight is already false. The rest happens
                 // on the main thread, for the same reason as in failUpload.
@@ -1229,12 +1281,9 @@ class RecordingService : Service() {
         val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivityManager.activeNetwork ?: return false
         val activeNetwork = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return when {
-            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> true
-            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> true
-            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> true
-            else -> false
-        }
+        // Capability-based rather than transport-based so VPN-only active networks
+        // (Tailscale, WireGuard, corporate VPNs) are not misreported as offline.
+        return activeNetwork.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private fun copyToClipboard(text: String) {

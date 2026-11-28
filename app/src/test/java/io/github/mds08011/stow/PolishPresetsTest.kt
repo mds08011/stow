@@ -57,11 +57,11 @@ class PolishPresetsTest {
     }
 
     @Test
-    fun `today placeholder is replaced with the supplied date, everywhere`() {
+    fun `today placeholder is replaced with the supplied date and weekday, everywhere`() {
         val prompt = PolishPresets.buildSystemPrompt(withToday, "", LocalDate.of(2026, 9, 21))
 
-        assertTrue(prompt.contains("Today is 2026-09-21."))
-        assertTrue(prompt.contains("Due 2026-09-21."))
+        assertTrue(prompt.contains("Today is 2026-09-21 (Monday)."))
+        assertTrue(prompt.contains("Due 2026-09-21 (Monday)."))
         assertFalse(prompt.contains(PolishPresets.TODAY_PLACEHOLDER))
     }
 
@@ -83,8 +83,8 @@ class PolishPresetsTest {
         )
         val prompt = PolishPresets.buildSystemPrompt(taskCapture, "", LocalDate.of(2026, 9, 21))
 
-        // The date has to reach the model, or every spoken deadline is guesswork.
-        assertTrue(prompt.contains("2026-09-21"))
+        // The date and weekday have to reach the model, or every spoken deadline is guesswork.
+        assertTrue(prompt.contains("2026-09-21 (Monday)"))
         assertFalse(prompt.contains(PolishPresets.TODAY_PLACEHOLDER))
         // The emoji form is what the Obsidian plugin reads a due date from.
         assertTrue(prompt.contains("📅 YYYY-MM-DD"))
